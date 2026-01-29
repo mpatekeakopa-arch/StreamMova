@@ -1,13 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import './welcome.css'; // Optional: create separate CSS
+import './welcome.css'; 
 
 function Welcome() {
   const navigate = useNavigate();
-  
+
   const handleGetStarted = () => {
-    // For now, navigate to dashboard
-    // Later you might want to navigate to signup or onboarding
     navigate('/dashboard');
   };
 
@@ -15,9 +13,13 @@ function Welcome() {
     navigate('/login');
   };
 
-  const handleExploreAsGuest = () => {
-    // Guest mode - navigate to limited access dashboard
-    navigate('/dashboard?guest=true');
+  // TEMP: Placeholder for Google Auth
+  const handleGoogleLogin = () => {
+    // Later this will trigger Google OAuth
+    console.log('Google login clicked');
+
+    // Temporary redirect (remove once OAuth is connected)
+    navigate('/dashboard');
   };
 
   return (
@@ -27,13 +29,13 @@ function Welcome() {
           <h1 className="app-title">StreamMova</h1>
           <div className="tagline">Where Stories Come Alive</div>
         </div>
-        
+
         <div className="hero-section">
           <div className="hero-text">
             <h2>Welcome to StreamMova</h2>
             <p>Your ultimate destination for endless entertainment</p>
           </div>
-          
+
           <div className="cta-section">
             <button 
               className="get-started-btn"
@@ -41,42 +43,39 @@ function Welcome() {
             >
               Get Started
             </button>
-            
+
             <button 
               className="sign-in-btn"
               onClick={handleSignIn}
             >
               Sign In
             </button>
-            
+
+            {/* Google Login Button */}
             <button 
-              className="guest-btn"
-              onClick={handleExploreAsGuest}
+              className="google-btn"
+              onClick={handleGoogleLogin}
             >
-              Explore as Guest
+              <img
+                src="https://developers.google.com/identity/images/g-logo.png"
+                alt="Google"
+                className="google-icon"
+              />
+              Log in with Google
             </button>
           </div>
         </div>
-        
+
         <div className="footer-note">
           <p>Ready to explore? Start your journey with us</p>
           <div className="quick-links">
-            <span 
-              className="link" 
-              onClick={() => navigate('/about')}
-            >
+            <span className="link" onClick={() => navigate('/about')}>
               About
             </span>
-            <span 
-              className="link" 
-              onClick={() => navigate('/features')}
-            >
+            <span className="link" onClick={() => navigate('/features')}>
               Features
             </span>
-            <span 
-              className="link" 
-              onClick={() => navigate('/contact')}
-            >
+            <span className="link" onClick={() => navigate('/contact')}>
               Contact
             </span>
           </div>
