@@ -10,18 +10,18 @@ function App() {
     <Router>
       <div className="App">
         <Routes>
-          {/* Welcome page as the default landing page */}
+          
           <Route path="/welcome" element={<Welcome />} />
           
-          {/* Dashboard/main app page */}
+          
           <Route path="/dashboard" element={<Dashboard />} />
 
           <Route path="/login" element={<Login />} />
           
-          {/* Redirect root to welcome page */}
+          
           <Route path="/" element={<Navigate to="/welcome" replace />} />
           
-          {/* Optional: Redirect any unknown routes */}
+          
           <Route path="*" element={<Navigate to="/welcome" replace />} />
         </Routes>
       </div>

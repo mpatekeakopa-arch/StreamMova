@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - StreamMova</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: white;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            padding: 20px;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            margin-top: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            animation: fadeInUp 1s ease-out;
+        }
+        
+        header {
+            text-align: center;
+            padding-bottom: 30px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            background: linear-gradient(45deg, #00dbde, #fc00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.8em;
+            margin-bottom: 10px;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+        
+        .streammova-title {
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(45deg, #00dbde, #fc00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #00dbde;
+            font-size: 1.2rem;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+            opacity: 0.8;
+        }
+        
+        .last-updated {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9em;
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+        
+        h2 {
+            color: white;
+            margin: 40px 0 20px 0;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(0, 219, 222, 0.3);
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        h2::before {
+            content: "§ ";
+            color: #00dbde;
+            font-weight: bold;
+        }
+        
+        h3 {
+            color: #fc00ff;
+            margin: 25px 0 15px 0;
+            font-weight: 500;
+        }
+        
+        p {
+            margin-bottom: 20px;
+            text-align: justify;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        ul {
+            margin-left: 25px;
+            margin-bottom: 25px;
+        }
+        
+        li {
+            margin-bottom: 10px;
+            color: rgba(255, 255, 255, 0.9);
+            position: relative;
+            padding-left: 10px;
+        }
+        
+        li::before {
+            content: "▸";
+            color: #00dbde;
+            position: absolute;
+            left: -15px;
+        }
+        
+        .contact-info {
+            background: rgba(0, 219, 222, 0.1);
+            padding: 25px;
+            border-radius: 10px;
+            margin: 30px 0;
+            border-left: 4px solid #00dbde;
+        }
+        
+        .important-note {
+            background: rgba(252, 0, 255, 0.1);
+            padding: 25px;
+            border-radius: 10px;
+            margin: 30px 0;
+            border-left: 4px solid #fc00ff;
+        }
+        
+        .important-note h3 {
+            color: #fc00ff;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9em;
+        }
+        
+        .back-button {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            padding: 12px 30px;
+            font-size: 1rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-decoration: none;
+            margin-bottom: 30px;
+        }
+        
+        .back-button:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: white;
+            transform: translateY(-2px);
+        }
+        
+        .section-number {
+            display: inline-block;
+            background: linear-gradient(45deg, #00dbde, #fc00ff);
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 35px;
+            margin-right: 15px;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        
+        .highlight {
+            background: rgba(0, 219, 222, 0.2);
+            color: #00dbde;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        
+        .policy-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.3s ease;
+        }
+        
+        .policy-section:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-2px);
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2.2em;
+            }
+            
+            .streammova-title {
+                font-size: 2.5rem;
+            }
+            
+            h2 {
+                font-size: 1.4em;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .streammova-title {
+                font-size: 2rem;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            h2 {
+                font-size: 1.2em;
+            }
+            
+            .container {
+                padding: 15px;
+            }
+        }
+        
+        /* Gradient text effect */
+        .gradient-text {
+            background: linear-gradient(45deg, #00dbde, #fc00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: bold;
+        }
+        
+        /* Smooth scroll behavior */
+        html {
+            scroll-behavior: smooth;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Privacy Policy</h1>
+            <div class="last-updated">Last Updated: <span id="currentDate"></span></div>
+            <h2>StreamMova Multi-Streaming Platform</h2>
+        </header>
+
+        <section>
+            <h2><span class="section-number">1</span> Introduction</h2>
+            <p><strong>StreamMova</strong> ("we," "our," or "us") is a multi-streaming platform that allows users to connect and manage multiple streaming accounts simultaneously. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our application through Facebook Developer Platform integration.</p>
+            <p>By using StreamMova, you consent to the data practices described in this policy. If you do not agree with this policy, please do not use our application.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">2</span> Information We Collect</h2>
+            
+            <h3>2.1 Information You Provide</h3>
+            <ul>
+                <li>Account credentials and authentication tokens for connected streaming platforms</li>
+                <li>User preferences, settings, and configuration data</li>
+                <li>Contact information when you communicate with our support team</li>
+                <li>Profile information from connected platforms (username, profile picture, etc.)</li>
+            </ul>
+            
+            <h3>2.2 Information We Automatically Collect</h3>
+            <p>Through Facebook integration and connected streaming platforms, we may collect:</p>
+            <ul>
+                <li><span class="highlight">Stream Data</span>: Publicly available stream information including titles, descriptions, categories, and thumbnails</li>
+                <li><span class="highlight">Public Engagement Data</span>: Likes, views, followers, and other public interaction metrics</li>
+                <li><span class="highlight">Chat Commands & Messages</span>: Public chat commands and interactions from your streams</li>
+                <li><span class="highlight">Stream Analytics</span>: Viewer statistics, peak view times, and engagement patterns</li>
+                <li><span class="highlight">Usage Data</span>: How you interact with our application, features used, and session duration</li>
+                <li><span class="highlight">Technical Data</span>: Device information, IP addresses, browser type, and operating system</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2><span class="section-number">3</span> How We Use Your Information</h2>
+            <p>We use the collected information to:</p>
+            <ul>
+                <li>Provide and maintain the StreamMova multi-streaming service</li>
+                <li>Retrieve, synchronize, and display your stream data across multiple platforms</li>
+                <li>Process and display public engagement metrics (likes, views, commands) in real-time</li>
+                <li>Enable cross-platform chat command functionality</li>
+                <li>Improve, optimize, and develop new application features</li>
+                <li>Communicate with you about updates, new features, and important notices</li>
+                <li>Monitor and analyze usage patterns to enhance user experience</li>
+                <li>Ensure platform security, prevent fraud, and detect misuse</li>
+                <li>Comply with legal obligations and platform requirements</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2><span class="section-number">4</span> Data Collection from Streaming Platforms</h2>
+            <p>When you connect your streaming accounts to StreamMova, we access and process:</p>
+            <ul>
+                <li><strong>Public Stream Information</strong>: Title, description, category, tags, thumbnails, and stream status</li>
+                <li><strong>Public Engagement Metrics</strong>: View counts, like counts, follower counts, share statistics</li>
+                <li><strong>Public Chat Data</strong>: Commands, messages, and interactions from your public streams</li>
+                <li><strong>Stream Status</strong>: Whether you are live, offline, or scheduled for streaming</li>
+                <li><strong>Platform-Specific Data</strong>: Data made available through each platform's public API</li>
+            </ul>
+            <p><strong>Important</strong>: We only collect data necessary to provide our multi-streaming functionality and only access public information available through platform APIs. We do not access private messages or non-public user data unless explicitly granted permission for specific features.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">5</span> Data Sharing and Disclosure</h2>
+            <p>We do <strong>not</strong> sell, trade, or rent your personal information to third parties. We may share data in the following circumstances:</p>
+            <ul>
+                <li>With <strong>third-party service providers</strong> who assist in operating our application, hosting, analytics, and customer support (under strict confidentiality agreements)</li>
+                <li>When <strong>required by law</strong> or to comply with legal processes</li>
+                <li>To <strong>protect our rights, privacy, safety, or property</strong>, and that of our users</li>
+                <li>With your <strong>explicit consent</strong> for specific sharing arrangements</li>
+                <li>In <strong>aggregated, anonymized form</strong> for analytical, research, or reporting purposes</li>
+                <li>During <strong>business transfers</strong> such as mergers, acquisitions, or asset sales</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2><span class="section-number">6</span> Data Retention</h2>
+            <p>We retain your information only as long as necessary to:</p>
+            <ul>
+                <li>Provide StreamMova services to you</li>
+                <li>Comply with legal obligations and regulatory requirements</li>
+                <li>Resolve disputes and enforce our agreements</li>
+                <li>Maintain business records for legitimate purposes</li>
+                <li>Support ongoing service improvements</li>
+            </ul>
+            <p>We typically retain active user data for <strong>24 months</strong> after account deactivation. Aggregated and anonymized data may be retained indefinitely for analytical purposes.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">7</span> Your Rights and Choices</h2>
+            <p>Depending on your location, you may have the following rights:</p>
+            <ul>
+                <li><strong>Access</strong>: Request access to your personal information</li>
+                <li><strong>Correction</strong>: Request correction of inaccurate or incomplete data</li>
+                <li><strong>Deletion</strong>: Request deletion of your personal data</li>
+                <li><strong>Restriction</strong>: Request restriction of processing your data</li>
+                <li><strong>Portability</strong>: Request transfer of your data to another service</li>
+                <li><strong>Objection</strong>: Object to processing of your personal data</li>
+                <li><strong>Withdraw Consent</strong>: Withdraw previously given consent at any time</li>
+            </ul>
+            <div class="contact-info">
+                <p><strong>To exercise these rights, contact us at:</strong></p>
+                <p>Email: privacy@streammova.com</p>
+                <p>Website: https://streammova.com/privacy-requests</p>
+            </div>
+        </section>
+
+        <section>
+            <h2><span class="section-number">8</span> Security Measures</h2>
+            <p>We implement reasonable security measures to protect your information, including:</p>
+            <ul>
+                <li>Encryption of data in transit using TLS/SSL protocols</li>
+                <li>Secure storage of authentication tokens and credentials</li>
+                <li>Regular security audits and vulnerability assessments</li>
+                <li>Access controls and authentication mechanisms</li>
+                <li>Employee training on data protection practices</li>
+            </ul>
+            <p><strong>Disclaimer:</strong> While we implement industry-standard security measures, no electronic transmission or storage method is 100% secure. We cannot guarantee absolute security of your data.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">9</span> Third-Party Platforms</h2>
+            <p>StreamMova integrates with various streaming platforms including but not limited to:</p>
+            <ul>
+                <li>Facebook Gaming</li>
+                <li>Twitch</li>
+                <li>YouTube</li>
+                <li>Other streaming services</li>
+            </ul>
+            <p>Each platform has its own privacy policies and terms of service. We encourage you to review the privacy policies of each platform you connect to StreamMova. We are not responsible for the privacy practices of these third-party services.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">10</span> International Data Transfers</h2>
+            <p>Your information may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place for international data transfers, including standard contractual clauses where applicable.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">11</span> Children's Privacy</h2>
+            <p>StreamMova is not intended for users under the age of 13 (or 16 in some regions). We do not knowingly collect information from children under 13. If we become aware that we have collected personal information from a child under 13, we will take steps to delete such information promptly.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">12</span> Changes to This Policy</h2>
+            <p>We may update this Privacy Policy periodically to reflect changes in our practices, services, or legal requirements. We will notify you of significant changes through:</p>
+            <ul>
+                <li>Notifications within the StreamMova application</li>
+                <li>Email communication to registered users</li>
+                <li>Updated "Last Updated" date on this policy</li>
+            </ul>
+            <p>Your continued use of StreamMova after changes constitutes acceptance of the updated policy.</p>
+        </section>
+
+        <section>
+            <h2><span class="section-number">13</span> Contact Information</h2>
+            <div class="contact-info">
+                <p>For privacy-related questions, concerns, or to exercise your rights:</p>
+                <p><strong>Email:</strong> privacy@streammova.com</p>
+                <p><strong>Website:</strong> https://streammova.com/contact</p>
+                <p><strong>Data Protection Officer:</strong> dpo@streammova.com</p>
+                <p><strong>Mailing Address:</strong><br>
+                StreamMova Privacy Team<br>
+                123 Tech Avenue, Suite 456<br>
+                San Francisco, CA 94107<br>
+                United States</p>
+            </div>
+        </section>
+
+        <div class="important-note">
+            <h3>Important Information for Facebook Developer Compliance</h3>
+            <ul>
+                <li><strong>Facebook Data Use</strong>: We access Facebook data only for providing multi-streaming functionality, with user consent</li>
+                <li><strong>User Consent</strong>: We obtain explicit consent before accessing user data from connected platforms</li>
+                <li><strong>Data Minimization</strong>: We collect only data necessary for StreamMova functionality</li>
+                <li><strong>Transparency</strong>: We clearly disclose all data collection and usage practices</li>
+                <li><strong>Security</strong>: We implement appropriate security measures for data protection</li>
+                <li><strong>Compliance</strong>: We comply with Facebook Platform Terms and Developer Policies</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p>© <span id="currentYear"></span> StreamMova. All rights reserved.</p>
+            <p>This Privacy Policy is effective as of the last updated date shown above.</p>
+        </footer>
+    </div>
+
+    <script>
+        // Set current date
+        const currentDate = new Date();
+        const options = { year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('currentDate').textContent = currentDate.toLocaleDateString('en-US', options);
+        
+        // Set current year
+        document.getElementById('currentYear').textContent = currentDate.getFullYear();
+        
+        // Update section numbers for better accessibility
+        document.addEventListener('DOMContentLoaded', function() {
+            const sections = document.querySelectorAll('section');
+            sections.forEach((section, index) => {
+                const h2 = section.querySelector('h2');
+                if (h2) {
+                    const sectionNumber = h2.querySelector('.section-number');
+                    if (sectionNumber) {
+                        sectionNumber.textContent = index + 1;
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

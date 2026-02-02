@@ -15,11 +15,13 @@ function Welcome() {
 
   // TEMP: Placeholder for Google Auth
   const handleGoogleLogin = () => {
-    // Later this will trigger Google OAuth
     console.log('Google login clicked');
-
-    // Temporary redirect (remove once OAuth is connected)
     navigate('/dashboard');
+  };
+
+  // Open policy.html directly
+  const handlePolicyClick = () => {
+    window.location.href = '/policy.html';
   };
 
   return (
@@ -51,7 +53,6 @@ function Welcome() {
               Sign In
             </button>
 
-            {/* Google Login Button */}
             <button 
               className="google-btn"
               onClick={handleGoogleLogin}
@@ -77,6 +78,10 @@ function Welcome() {
             </span>
             <span className="link" onClick={() => navigate('/contact')}>
               Contact
+            </span>
+            {/* Fixed: Opens policy.html directly */}
+            <span className="link" onClick={handlePolicyClick}>
+              Policy
             </span>
           </div>
         </div>
