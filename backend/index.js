@@ -1,3 +1,5 @@
+console.log("🚀 Backend file loaded");
+
 require("dotenv").config();
 
 const express = require("express");
@@ -54,4 +56,40 @@ app.post("/api/users/upsert", async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+app.post("/api/auth/logins", async (req, res) => {
+  const { auth_user_id, provider, success, failure_reason } = req.body;
+
+  if (!provider) {
+    return res.status(400).json({ ok: false, error: "provider required" });
+  }
+
+  try {
+    const q = `
+      insert into login_events (auth_user_id, provider, success, failure_reason)
+      values ($1, $2, $3, $4)
+      returning id;
+    `;
+
+    const r = await pool.query(q, [
+      auth_user_id || null,
+      provider,
+      success !== false,
+      success === false ? (failure_reason || "unknown") : null,
+    ]);
+
+    res.json({ ok: true, id: r.rows[0].id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ---------------- START SERVER ---------------- */
+console.log("🚀 About to start server...");
+
+const PORT = Number(process.env.PORT || 5000);
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Backend running on http://localhost:${PORT}`);
 });

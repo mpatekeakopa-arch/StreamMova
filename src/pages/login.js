@@ -1,8 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+//import React, { useState } from "react";
 import "./login.css";
 import { authClient } from "../auth";
 
-const BACKEND_URL = "http://localhost:5000";
+/*const BACKEND_URL = "http://localhost:5000";*/
+const BACKEND_URL = "http://127.0.0.1:5000";
+
 
 export default function Login() {
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
@@ -79,12 +82,6 @@ export default function Login() {
           password,
         });
       }
-
-      /**
-       * Neon auth SDKs often return a structured object.
-       * Some return { user }, others return { data: { user }, error }.
-       * This handles both shapes safely.
-       */
       const possibleError = result?.error;
       if (possibleError) {
         const msg = possibleError?.message || "Authentication failed.";
@@ -177,6 +174,59 @@ export default function Login() {
     }
   };
 
+  //it starts here
+  useEffect(() => {
+  let cancelled = false;
+
+  async function finishGoogleRedirect() {
+    try {
+      // SDKs differ by version; these cover common shapes.
+      let res = null;
+
+      if (typeof authClient.user === "function") {
+        res = await authClient.user();
+      } else if (typeof authClient.getUser === "function") {
+        res = await authClient.getUser();
+      } else if (typeof authClient.session === "function") {
+        res = await authClient.session();
+      }
+
+      const user =
+        res?.user ||
+        res?.data?.user ||
+        res?.data?.session?.user ||
+        res?.session?.user ||
+        null;
+
+      if (!cancelled && user?.id) {
+        await upsertUser({
+          auth_user_id: user.id,
+          email: user.email || null,
+          display_name: user.name || null,
+          avatar_url: user.image || null,
+        });
+
+        await logLogin({
+          auth_user_id: user.id,
+          provider: "google",
+          success: true,
+        });
+
+        window.location.href = "/dashboard";
+      }
+    } catch {
+      // ignore: not signed in yet
+    }
+  }
+
+  finishGoogleRedirect();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+//ends here
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -236,14 +286,17 @@ export default function Login() {
           </button>
         </form>
 
-        <button
-          type="button"
-          onClick={handleGoogle}
-          disabled={loading}
-          style={{ marginTop: 12, width: "100%" }}
-        >
-          Continue with Google
-        </button>
+        <button 
+              className="google-btn"
+              onClick={handleGoogle}
+            >
+              <img
+                src="https://developers.google.com/identity/images/g-logo.png"
+                alt="Google"
+                className="google-icon"
+              />
+              Log in with Google
+            </button>
 
         <div className="login-footer" style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           {mode === "signin" ? (
