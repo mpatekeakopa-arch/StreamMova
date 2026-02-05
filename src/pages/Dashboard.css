@@ -1,3 +1,4 @@
+/* Dashboard.css - StreamMova Dashboard Styles (UPDATED with platform logos) */
 
 * {
   margin: 0;
@@ -107,54 +108,6 @@
   font-size: 18px;
   width: 24px;
   text-align: center;
-}
-
-/* Destinations (icons like your screenshot) */
-.dest-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 30px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.82);
-  cursor: pointer;
-  position: relative;
-  text-align: left;
-  transition: background 0.2s ease, transform 0.15s ease;
-}
-
-.dest-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-  transform: translateX(2px);
-}
-
-.dest-item.active {
-  background: rgba(106, 17, 203, 0.15);
-  color: #fff;
-}
-
-.dest-item.active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  width: 4px;
-  background: linear-gradient(to bottom, #6a11cb, #2575fc);
-}
-
-.dest-icon {
-  width: 24px;
-  display: inline-flex;
-  justify-content: center;
-  font-size: 18px;
-}
-
-.dest-label {
-  font-size: 15px;
-  font-weight: 600;
 }
 
 /* Main content */
@@ -471,7 +424,377 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* Mobile toggle (single, non-duplicated rule) */
+/* Channel Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.channel-modal {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 20px;
+  width: 90%;
+  max-width: 500px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  padding: 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(16, 18, 27, 0.8);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.modal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #6a11cb;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px rgba(106, 17, 203, 0.1);
+}
+
+.form-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.help-text {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.4;
+}
+
+/* Platform Grid */
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+/* UPDATED: add gap and tweak padding for logo+text */
+.platform-option {
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: rgba(255, 255, 255, 0.85);
+  gap: 6px;
+}
+
+.platform-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+.platform-option.selected {
+  border-color: #6a11cb;
+  background: rgba(106, 17, 203, 0.1);
+  box-shadow: 0 4px 12px rgba(106, 17, 203, 0.2);
+}
+
+/* UPDATED: you use <img> now, so hide old icons */
+.platform-option i {
+  display: none;
+}
+
+.platform-option span {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* NEW: Platform Logo (tile) */
+.platform-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 4px;
+  margin-bottom: 6px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+}
+
+/* NEW: Platform Logo (inline in header) */
+.platform-logo-inline {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 2px;
+  margin-right: 8px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
+  vertical-align: middle;
+}
+
+/* Connection Test */
+.connection-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  margin-top: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.test-btn {
+  padding: 10px 20px;
+  background: rgba(106, 17, 203, 0.2);
+  border: 1px solid rgba(106, 17, 203, 0.3);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.test-btn:hover {
+  background: rgba(106, 17, 203, 0.3);
+  transform: translateY(-2px);
+}
+
+.test-status {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Modal Footer */
+.modal-footer {
+  padding: 20px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: rgba(16, 18, 27, 0.8);
+}
+
+.modal-footer .btn {
+  padding: 12px 28px;
+  font-size: 14px;
+  min-width: 120px;
+}
+
+.modal-footer .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Connected Channels Section */
+.connected-channels {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.connected-channels h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connected-channels h4::before {
+  content: "📡";
+  font-size: 18px;
+}
+
+.channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.channel-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s;
+}
+
+.channel-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.channel-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* UPDATED: hide old <i> usage for channel icon */
+.channel-info i {
+  display: none;
+}
+
+.channel-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.channel-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.1);
+  padding: 4px 10px;
+  border-radius: 50px;
+}
+
+.channel-status i {
+  font-size: 10px;
+}
+
+.channel-remove {
+  background: transparent;
+  border: none;
+  color: rgba(255, 74, 74, 0.6);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.channel-remove:hover {
+  background: rgba(255, 74, 74, 0.1);
+  color: #ff4a4a;
+}
+
+/* NEW: Connected channel logo styling */
+.channel-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 3px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
+}
+
+/* NEW: ensures logo container doesn’t shrink */
+.channel-platform-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+/* Mobile toggle */
 .mobile-toggle {
   display: none;
   font-size: 24px;
@@ -489,6 +812,12 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s;
+}
+
+.mobile-toggle:hover {
+  transform: scale(1.1);
+  background: rgba(16, 18, 27, 0.95);
 }
 
 /* Responsive */
@@ -509,7 +838,7 @@
 
   .main-content {
     margin-left: 0;
-    padding: 30px 20px;
+    padding: 30px 20px 30px 80px;
   }
 
   .mobile-toggle {
@@ -522,6 +851,10 @@
 
   .search-box input:focus {
     width: 250px;
+  }
+
+  .platform-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
@@ -547,6 +880,28 @@
   .stream-preview-container {
     height: 300px;
   }
+
+  .channel-modal {
+    width: 95%;
+    margin: 16px;
+  }
+
+  .modal-body {
+    padding: 20px;
+  }
+
+  .modal-footer {
+    padding: 16px 20px;
+    flex-direction: column;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+  }
+
+  .platform-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 576px) {
@@ -565,4 +920,106 @@
   .stream-preview-container {
     height: 250px;
   }
+
+  .platform-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .channel-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .main-content {
+    padding: 30px 15px 30px 70px;
+  }
+
+  .mobile-toggle {
+    left: 15px;
+    top: 20px;
+    width: 45px;
+    height: 45px;
+  }
 }
+
+/* Fix for hint text with channels */
+.hint-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  margin-top: 20px;
+  line-height: 1.5;
+  padding: 0 10px;
+}
+
+/* Remove old destination styles */
+.dest-item,
+.dest-icon,
+.dest-label {
+  display: none;
+}
+/* Sidebar hide/show (hamburger) */
+.sidebar-toggle {
+  position: fixed;
+  top: 26px;
+  left: 26px;
+  z-index: 1001;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(16, 18, 27, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+  transform: scale(1.06);
+  background: rgba(16, 18, 27, 0.95);
+}
+
+.sidebar-toggle i {
+  font-size: 20px;
+}
+
+/* When sidebar is collapsed, show a small StreamMova logo */
+.sidebar-toggle-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 20px rgba(106, 17, 203, 0.25);
+}
+
+.sidebar-toggle-logo i {
+  font-size: 16px;
+}
+
+/* Sidebar slide out */
+.sidebar.collapsed {
+  transform: translateX(-100%);
+}
+
+/* Main content expands when sidebar is hidden */
+.streammova-app.sidebar-collapsed .main-content {
+  margin-left: 0;
+}
+
+/* Keep your original default (sidebar visible) margin */
+.main-content {
+  margin-left: 280px;
+}
+
