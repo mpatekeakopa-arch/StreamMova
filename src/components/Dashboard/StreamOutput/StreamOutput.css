@@ -1,0 +1,512 @@
+.stream-output {
+  background: rgba(16, 18, 27, 0.8);
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  height: fit-content;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  gap: 15px;
+}
+
+.section-header h2 {
+  font-size: 22px;
+  font-weight: 600;
+  color: white;
+  margin: 0;
+  background: linear-gradient(135deg, #ffffff 0%, #a8b5ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Status indicator */
+.status-indicator {
+  padding: 8px 20px;
+  border-radius: 50px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.status-indicator.live {
+  background: linear-gradient(135deg, rgba(255, 71, 87, 0.2), rgba(255, 71, 87, 0.1));
+  color: #ff4757;
+  border-color: rgba(255, 71, 87, 0.3);
+  animation: livePulse 2s infinite;
+  box-shadow: 0 0 15px rgba(255, 71, 87, 0.2);
+}
+
+.status-indicator.ready {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.2), rgba(46, 204, 113, 0.1));
+  color: #2ecc71;
+  border-color: rgba(46, 204, 113, 0.3);
+}
+
+@keyframes livePulse {
+  0%, 100% { 
+    opacity: 1;
+    box-shadow: 0 0 15px rgba(255, 71, 87, 0.2);
+  }
+  50% { 
+    opacity: 0.8;
+    box-shadow: 0 0 25px rgba(255, 71, 87, 0.4);
+  }
+}
+
+/* Video preview */
+.stream-preview-container {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 15px;
+  overflow: hidden;
+  margin-bottom: 25px;
+  height: 400px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.stream-preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  color: rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(16, 18, 27, 0.8), rgba(22, 33, 62, 0.8));
+}
+
+.stream-preview-placeholder i {
+  font-size: 80px;
+  margin-bottom: 20px;
+  color: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stream-preview-placeholder h3 {
+  font-size: 24px;
+  margin-bottom: 10px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+.stream-preview-placeholder p {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  max-width: 300px;
+  line-height: 1.5;
+}
+
+/* Buttons */
+.stream-controls {
+  display: flex;
+  gap: 15px;
+  margin-top: 25px;
+}
+
+.btn {
+  padding: 14px 28px;
+  border-radius: 12px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.6s ease;
+}
+
+.btn:hover::before {
+  left: 100%;
+}
+
+.btn i {
+  font-size: 16px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  color: white;
+  flex: 1;
+  border: 1px solid rgba(106, 17, 203, 0.3);
+  box-shadow: 0 5px 15px rgba(106, 17, 203, 0.2);
+}
+
+.btn-primary:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(106, 17, 203, 0.3);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex: 1;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  color: white;
+  flex: 1;
+  border: 1px solid rgba(255, 65, 108, 0.3);
+  box-shadow: 0 5px 15px rgba(255, 65, 108, 0.2);
+}
+
+.btn-danger:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(255, 65, 108, 0.3);
+}
+
+/* Error + hint */
+.error-message {
+  background: linear-gradient(135deg, rgba(255, 71, 87, 0.1), rgba(255, 71, 87, 0.05));
+  color: #ff6b6b;
+  padding: 14px 18px;
+  border-radius: 10px;
+  margin-bottom: 15px;
+  font-size: 14px;
+  text-align: center;
+  border: 1px solid rgba(255, 71, 87, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.hint-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  margin-top: 20px;
+  line-height: 1.5;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-weight: 400;
+}
+
+/* Connected Channels Section */
+.connected-channels {
+  margin-top: 30px;
+  padding-top: 25px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.connected-channels h4 {
+  margin: 0 0 18px 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connected-channels h4::before {
+  content: "📡";
+  font-size: 20px;
+  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.channel-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.channel-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.02), transparent);
+  transition: left 0.6s ease;
+}
+
+.channel-item:hover::before {
+  left: 100%;
+}
+
+.channel-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.channel-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.channel-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: white;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: transform 0.3s ease;
+}
+
+.channel-item:hover .channel-logo {
+  transform: scale(1.1);
+}
+
+.channel-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.channel-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.1);
+  padding: 6px 14px;
+  border-radius: 50px;
+  border: 1px solid rgba(46, 204, 113, 0.2);
+  font-weight: 500;
+}
+
+.channel-status i {
+  animation: statusPulse 2s infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.channel-remove {
+  background: transparent;
+  border: none;
+  color: rgba(255, 74, 74, 0.6);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.channel-remove::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 8px;
+  background: rgba(255, 74, 74, 0);
+  transition: background 0.2s;
+}
+
+.channel-remove:hover {
+  color: #ff4a4a;
+}
+
+.channel-remove:hover::before {
+  background: rgba(255, 74, 74, 0.1);
+}
+
+.channel-remove i {
+  position: relative;
+  z-index: 1;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .stream-preview-container {
+    height: 350px;
+  }
+  
+  .channel-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .channel-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 768px) {
+  .stream-output {
+    padding: 25px;
+  }
+  
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .stream-preview-container {
+    height: 300px;
+  }
+  
+  .stream-controls {
+    flex-direction: column;
+  }
+  
+  .btn {
+    padding: 12px 24px;
+  }
+  
+  .stream-preview-placeholder h3 {
+    font-size: 20px;
+  }
+  
+  .stream-preview-placeholder p {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 576px) {
+  .stream-output {
+    padding: 20px;
+  }
+  
+  .stream-preview-container {
+    height: 250px;
+  }
+  
+  .stream-preview-placeholder i {
+    font-size: 60px;
+  }
+  
+  .channel-info {
+    font-size: 14px;
+  }
+  
+  .channel-status {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}
+
+/* Animation for stream output entrance */
+.stream-output {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Live indicator animation when streaming */
+.is-streaming .stream-preview-container {
+  box-shadow: 
+    inset 0 0 20px rgba(255, 71, 87, 0.1),
+    0 0 30px rgba(255, 71, 87, 0.15);
+  border-color: rgba(255, 71, 87, 0.2);
+}
+
+/* When video is playing */
+.video-preview:not([src=""]) {
+  animation: videoAppear 0.5s ease-out;
+}
+
+@keyframes videoAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -1,53 +1,60 @@
-import React, { useEffect, useState } from "react";
-//import React, { useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import "./login.css";
 import { authClient } from "../auth";
 
-/*const BACKEND_URL = "http://localhost:5000";*/
-const BACKEND_URL = "http://127.0.0.1:5000";
-
+/**
+ * Using Neon Auth for email + Google OAuth.
+ * Local dev uses your Express backend for /api/* logging + upsert.
+ * Production on Netlify will NOT have 127.0.0.1, so these calls are skipped there.
+ */
+const BACKEND_URL =
+  process.env.NODE_ENV === "development" ? "http://127.0.0.1:5000" : "";
 
 export default function Login() {
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState(""); // used for sign-up
+  const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function logLogin({ auth_user_id, provider, success, failure_reason }) {
+  // Helper: no-op in production unless you actually deploy a backend
+  const safePost = useCallback(async (path, payload) => {
+    if (!BACKEND_URL) return;
     try {
-      await fetch(`${BACKEND_URL}/api/auth/logins`, {
+      await fetch(`${BACKEND_URL}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auth_user_id: auth_user_id || null,
-          provider,
-          success,
-          failure_reason,
-        }),
+        body: JSON.stringify(payload),
       });
     } catch {
       // Don't block auth if logging fails
     }
-  }
+  }, []);
 
-  async function upsertUser({ auth_user_id, email, display_name, avatar_url }) {
-    try {
-      await fetch(`${BACKEND_URL}/api/users/upsert`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auth_user_id,
-          email,
-          display_name,
-          avatar_url,
-        }),
+  const logLogin = useCallback(
+    async ({ auth_user_id, provider, success, failure_reason }) => {
+      await safePost("/api/auth/logins", {
+        auth_user_id: auth_user_id || null,
+        provider,
+        success,
+        failure_reason,
       });
-    } catch {
-      // Don't block auth if upsert fails
-    }
-  }
+    },
+    [safePost]
+  );
+
+  const upsertUser = useCallback(
+    async ({ auth_user_id, email, display_name, avatar_url }) => {
+      await safePost("/api/users/upsert", {
+        auth_user_id,
+        email,
+        display_name,
+        avatar_url,
+      });
+    },
+    [safePost]
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -69,23 +76,23 @@ export default function Login() {
       let result;
 
       if (mode === "signup") {
-        // ✅ Create account
         result = await authClient.signUp.email({
           email,
           password,
           name: displayName.trim(),
         });
       } else {
-        // ✅ Sign in
         result = await authClient.signIn.email({
           email,
           password,
         });
       }
+
       const possibleError = result?.error;
       if (possibleError) {
         const msg = possibleError?.message || "Authentication failed.";
         setError(msg);
+
         await logLogin({
           auth_user_id: null,
           provider: "email",
@@ -99,26 +106,26 @@ export default function Login() {
         result?.user ||
         result?.data?.user ||
         result?.data?.session?.user ||
+        result?.session?.user ||
         null;
 
       if (!user?.id) {
-        // Some flows may require email verification before a user/session is returned.
         const msg =
           mode === "signup"
             ? "Account created. Please check your email to verify, then sign in."
             : "Signed in, but user session not returned. Try again.";
+
         setError(msg);
 
         await logLogin({
           auth_user_id: null,
           provider: "email",
-          success: mode !== "signup", // treat signup as "pending"
+          success: mode !== "signup",
           failure_reason: mode === "signup" ? "verification_required" : msg,
         });
         return;
       }
 
-      // ✅ Sync user profile into your Neon "users" table
       await upsertUser({
         auth_user_id: user.id,
         email: user.email || email,
@@ -126,7 +133,6 @@ export default function Login() {
         avatar_url: user.image || null,
       });
 
-      // ✅ Record successful login event
       await logLogin({
         auth_user_id: user.id,
         provider: "email",
@@ -154,13 +160,28 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await authClient.signIn.oauth({
+      // Debug visibility in console (helpful on Netlify)
+      // eslint-disable-next-line no-console
+      console.log("REACT_APP_NEON_AUTH_URL =", process.env.REACT_APP_NEON_AUTH_URL);
+      // eslint-disable-next-line no-console
+      console.log("origin =", window.location.origin);
+
+      const res = await authClient.signIn.oauth({
         provider: "google",
         redirectUrl: `${window.location.origin}/dashboard`,
       });
-      // After redirect, /dashboard loads; we log google there (recommended)
+
+      // Some SDK versions return a URL instead of auto-redirecting:
+      if (res?.url) window.location.href = res.url;
     } catch (err) {
-      const msg = err?.message || "Google sign-in failed.";
+      // eslint-disable-next-line no-console
+      console.error("Google sign-in error:", err);
+
+      const msg =
+        err?.message ||
+        err?.error?.message ||
+        (typeof err === "string" ? err : "Google sign-in failed.");
+
       setError(msg);
 
       await logLogin({
@@ -174,58 +195,56 @@ export default function Login() {
     }
   };
 
-  //it starts here
+  // After Google redirects back, try to read the user/session and sync
   useEffect(() => {
-  let cancelled = false;
+    let cancelled = false;
 
-  async function finishGoogleRedirect() {
-    try {
-      // SDKs differ by version; these cover common shapes.
-      let res = null;
+    async function finishGoogleRedirect() {
+      try {
+        let res = null;
 
-      if (typeof authClient.user === "function") {
-        res = await authClient.user();
-      } else if (typeof authClient.getUser === "function") {
-        res = await authClient.getUser();
-      } else if (typeof authClient.session === "function") {
-        res = await authClient.session();
+        if (typeof authClient.user === "function") {
+          res = await authClient.user();
+        } else if (typeof authClient.getUser === "function") {
+          res = await authClient.getUser();
+        } else if (typeof authClient.session === "function") {
+          res = await authClient.session();
+        }
+
+        const user =
+          res?.user ||
+          res?.data?.user ||
+          res?.data?.session?.user ||
+          res?.session?.user ||
+          null;
+
+        if (!cancelled && user?.id) {
+          await upsertUser({
+            auth_user_id: user.id,
+            email: user.email || null,
+            display_name: user.name || null,
+            avatar_url: user.image || null,
+          });
+
+          await logLogin({
+            auth_user_id: user.id,
+            provider: "google",
+            success: true,
+          });
+
+          window.location.href = "/dashboard";
+        }
+      } catch {
+        // ignore
       }
-
-      const user =
-        res?.user ||
-        res?.data?.user ||
-        res?.data?.session?.user ||
-        res?.session?.user ||
-        null;
-
-      if (!cancelled && user?.id) {
-        await upsertUser({
-          auth_user_id: user.id,
-          email: user.email || null,
-          display_name: user.name || null,
-          avatar_url: user.image || null,
-        });
-
-        await logLogin({
-          auth_user_id: user.id,
-          provider: "google",
-          success: true,
-        });
-
-        window.location.href = "/dashboard";
-      }
-    } catch {
-      // ignore: not signed in yet
     }
-  }
 
-  finishGoogleRedirect();
+    finishGoogleRedirect();
 
-  return () => {
-    cancelled = true;
-  };
-}, []);
-//ends here
+    return () => {
+      cancelled = true;
+    };
+  }, [logLogin, upsertUser]);
 
   return (
     <div className="login-page">
@@ -286,28 +305,38 @@ export default function Login() {
           </button>
         </form>
 
-        <button 
-              className="google-btn"
-              onClick={handleGoogle}
-            >
-              <img
-                src="https://developers.google.com/identity/images/g-logo.png"
-                alt="Google"
-                className="google-icon"
-              />
-              Log in with Google
-            </button>
+        <button className="google-btn" onClick={handleGoogle} disabled={loading}>
+          <img
+            src="https://developers.google.com/identity/images/g-logo.png"
+            alt="Google"
+            className="google-icon"
+          />
+          Log in with Google
+        </button>
 
-        <div className="login-footer" style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+        <div
+          className="login-footer"
+          style={{ display: "flex", gap: 12, justifyContent: "center" }}
+        >
           {mode === "signin" ? (
             <>
-              <button type="button" onClick={() => setMode("signup")} style={{ background: "none", border: "none", cursor: "pointer" }}>
+              <button
+                type="button"
+                onClick={() => setMode("signup")}
+                style={{ background: "none", border: "none", cursor: "pointer" }}
+                disabled={loading}
+              >
                 Create account
               </button>
               <a href="/forgot-password">Forgot password?</a>
             </>
           ) : (
-            <button type="button" onClick={() => setMode("signin")} style={{ background: "none", border: "none", cursor: "pointer" }}>
+            <button
+              type="button"
+              onClick={() => setMode("signin")}
+              style={{ background: "none", border: "none", cursor: "pointer" }}
+              disabled={loading}
+            >
               Already have an account? Sign in
             </button>
           )}
