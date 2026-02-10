@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./Dashboard.css";
+// Public SRS host (no SSH tunnel)
+const SRS_HOST = "84.8.132.222";
+
+// Prefer WHIP over HTTPS from Netlify (recommended)
+// If you later put SRS behind your own domain + TLS, replace host with your domain.
+const SRS_WHIP_URL = `https://${SRS_HOST}:8080/rtc/v1/whip/?app=live&stream=test`;
+
 
 function getInitials(nameOrEmail = "") {
   const s = String(nameOrEmail).trim();
@@ -33,6 +40,7 @@ function readUserFromStorage() {
 function Dashboard() {
   // Sidebar open/close (hamburger hides/shows)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
 
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeNav, setActiveNav] = useState("dashboard");
@@ -56,6 +64,8 @@ function Dashboard() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const modalRef = useRef(null);
+  const pcRef = useRef(null);
+
 
   // Platform list + logos
   const availablePlatforms = [
@@ -206,18 +216,87 @@ function Dashboard() {
         audio: true,
       });
 
-      streamRef.current = stream;
-      setIsCameraOn(true);
-      setIsStreaming(true);
-    } catch (err) {
-      console.error(err);
-      setError("Unable to access camera or microphone. Please allow permissions.");
-      setIsCameraOn(false);
-      setIsStreaming(false);
-    }
+     streamRef.current = stream;
+setIsCameraOn(true);
+
+try {
+  await publishToSRS_WHIP(stream);
+  setIsStreaming(true);
+} catch (e) {
+  console.error(e);
+  setError(
+    "Camera started, but failed to publish to SRS. Check SRS WHIP (8080 HTTPS) / firewall / TLS."
+  );
+  setIsStreaming(false);
+}
+
   };
 
+  async function publishToSRS_WHIP(stream) {
+  // Create PeerConnection
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }], // ok for NAT traversal
+  });
+
+  pcRef.current = pc;
+
+  // Add tracks
+  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+  // Create SDP offer
+  const offer = await pc.createOffer({
+    offerToReceiveAudio: false,
+    offerToReceiveVideo: false,
+  });
+  await pc.setLocalDescription(offer);
+
+  // Wait for ICE gathering to complete (so offer SDP includes candidates)
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") return resolve();
+    const onState = () => {
+      if (pc.iceGatheringState === "complete") {
+        pc.removeEventListener("icegatheringstatechange", onState);
+        resolve();
+      }
+    };
+    pc.addEventListener("icegatheringstatechange", onState);
+  });
+
+  // Send offer SDP to SRS WHIP endpoint
+  const res = await fetch(SRS_WHIP_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/sdp",
+    },
+    body: pc.localDescription.sdp,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`WHIP publish failed: ${res.status} ${res.statusText} ${text}`);
+  }
+
+  // SRS returns answer SDP
+  const answerSdp = await res.text();
+  await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+  // Optional: helpful logs
+  pc.onconnectionstatechange = () => {
+    console.log("PC connectionState:", pc.connectionState);
+  };
+  pc.oniceconnectionstatechange = () => {
+    console.log("PC iceConnectionState:", pc.iceConnectionState);
+  };
+}
+
+
   const stopCamera = () => {
+
+    if (pcRef.current) {
+  try { pcRef.current.close(); } catch {}
+  pcRef.current = null;
+}
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -590,7 +669,7 @@ function Dashboard() {
                 <div className="notification-badge"></div>
               </div>
 
-              {/* ✅ Now uses the logged-in user's info (from localStorage "user") */}
+              {/*Now uses the logged-in user's info (from localStorage "user") */}
               <div className="user-profile">
                 <div className="user-avatar">
                   {user?.photoURL ? (
