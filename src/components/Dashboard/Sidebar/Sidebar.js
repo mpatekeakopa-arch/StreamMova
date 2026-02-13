@@ -5,13 +5,7 @@ function Sidebar({ isSidebarOpen, activeNav, toggleSidebar, handleNavClick }) {
   return (
     <>
       <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar">
-        {isSidebarOpen ? (
-          <i className="fas fa-bars"></i>
-        ) : (
-          <div className="sidebar-toggle-logo">
-            <i className="fas fa-satellite-dish"></i>
-          </div>
-        )}
+        <i className={`fas ${isSidebarOpen ? "fa-times" : "fa-bars"}`}></i>
       </button>
 
       <div className={`sidebar ${isSidebarOpen ? "" : "collapsed"}`}>

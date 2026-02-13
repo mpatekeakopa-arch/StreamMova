@@ -5,7 +5,7 @@ function Header({ displayName, planName, avatarInitials, user }) {
   return (
     <div className="header">
       <div className="header-title">
-        <h1>Multistream Dashboard</h1>
+        <h1>Dashboard</h1>
         <p>Stream to multiple platforms simultaneously</p>
       </div>
 
