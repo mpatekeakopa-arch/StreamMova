@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": ["/static/*", "/favicon.ico", "/manifest.json", "/robots.txt", "/asset-manifest.json"]
+}
