@@ -4,8 +4,17 @@ import "./Sidebar.css";
 function Sidebar({ isSidebarOpen, activeNav, toggleSidebar, handleNavClick }) {
   return (
     <>
-      <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar">
-        <i className={`fas ${isSidebarOpen ? "fa-times" : "fa-bars"}`}></i>
+      <button
+        className={`sidebar-toggle ${isSidebarOpen ? "is-open" : ""}`}
+        onClick={toggleSidebar}
+        aria-label="Toggle sidebar"
+        aria-expanded={isSidebarOpen}
+      >
+        <span className="hamburger" aria-hidden="true">
+          <span className="hamburger-line" />
+          <span className="hamburger-line" />
+          <span className="hamburger-line" />
+        </span>
       </button>
 
       <div className={`sidebar ${isSidebarOpen ? "" : "collapsed"}`}>

@@ -1,4 +1,10 @@
-/* Dashboard.css - Global/Layout styles only */
+/* ================================
+   Dashboard.css (Layout only)
+   Goal: Sidebar HIDDEN by default.
+   Opens ONLY when user clicks hamburger.
+=================================== */
+
+/* ---------------- Base Reset ---------------- */
 * {
   margin: 0;
   padding: 0;
@@ -10,29 +16,37 @@ body {
   overflow-x: hidden;
 }
 
+/* ---------------- App Shell ---------------- */
+/* IMPORTANT:
+   Default state should be "sidebar-collapsed" on first render.
+   (i.e. <div className="streammova-app sidebar-collapsed">...)
+*/
 .streammova-app {
   display: flex;
   min-height: 100vh;
   background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
   color: #fff;
   position: relative;
+  animation: fadeIn 0.5s ease-out;
 }
 
-/* Main content layout */
+/* ---------------- Main content layout ---------------- */
+/* Sidebar is hidden by default => NO left margin by default */
 .main-content {
   flex: 1;
-  margin-left: 280px;
+  margin-left: 0;
   padding: 30px;
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.1);
   min-height: 100vh;
   overflow-y: auto;
 }
 
-.streammova-app.sidebar-collapsed .main-content {
-  margin-left: 0;
+/* When sidebar is OPEN, push content (desktop) */
+.streammova-app:not(.sidebar-collapsed) .main-content {
+  margin-left: 280px;
 }
 
-/* Dashboard content grid */
+/* ---------------- Dashboard content grid ---------------- */
 .dashboard-content {
   display: grid;
   grid-template-columns: 1.6fr 0.9fr 1fr;
@@ -40,7 +54,7 @@ body {
   align-items: start;
 }
 
-/* Responsive Design */
+/* ---------------- Responsive Design ---------------- */
 @media (max-width: 1400px) {
   .dashboard-content {
     grid-template-columns: 1.8fr 1fr;
@@ -61,22 +75,14 @@ body {
   }
 }
 
+/* On mobile/tablet:
+   - sidebar overlays (drawer)
+   - main content stays full width
+   - keep left padding so hamburger doesn't overlap content */
 @media (max-width: 992px) {
-  .sidebar {
-    transform: translateX(-100%);
-  }
-
-  .sidebar:not(.collapsed) {
-    transform: translateX(0);
-  }
-
   .main-content {
-    margin-left: 0;
+    margin-left: 0 !important;
     padding: 30px 20px 30px 80px;
-  }
-
-  .streammova-app.sidebar-collapsed .main-content {
-    padding-left: 80px;
   }
 }
 
@@ -88,10 +94,6 @@ body {
   .main-content {
     padding: 25px 15px 25px 70px;
   }
-
-  .streammova-app.sidebar-collapsed .main-content {
-    padding-left: 70px;
-  }
 }
 
 @media (max-width: 576px) {
@@ -102,17 +104,9 @@ body {
   .main-content {
     padding: 20px 12px 20px 65px;
   }
-
-  .streammova-app.sidebar-collapsed .main-content {
-    padding-left: 65px;
-  }
 }
 
-/* Animation for page load */
-.streammova-app {
-  animation: fadeIn 0.5s ease-out;
-}
-
+/* ---------------- Animations ---------------- */
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -122,7 +116,7 @@ body {
   }
 }
 
-/* Custom scrollbar for main content */
+/* ---------------- Custom scrollbar for main content ---------------- */
 .main-content::-webkit-scrollbar {
   width: 8px;
 }
@@ -141,7 +135,7 @@ body {
   background: rgba(106, 17, 203, 0.7);
 }
 
-/* Loading state */
+/* ---------------- Loading state ---------------- */
 .loading {
   position: fixed;
   top: 0;
@@ -170,14 +164,15 @@ body {
   }
 }
 
-/* Print styles */
+/* ---------------- Print styles ---------------- */
 @media print {
   .sidebar,
   .sidebar-toggle,
   .header-controls,
   .stream-controls,
   .qa-btn,
-  .channel-remove {
+  .channel-remove,
+  .sidebar-overlay {
     display: none !important;
   }
 
@@ -207,7 +202,7 @@ body {
   }
 }
 
-/* Utility classes (optional) */
+/* ---------------- Utility classes ---------------- */
 .text-gradient {
   background: linear-gradient(135deg, #6a11cb, #2575fc);
   -webkit-background-clip: text;
@@ -223,13 +218,13 @@ body {
   display: block !important;
 }
 
-/* Focus styles for accessibility */
+/* ---------------- Accessibility ---------------- */
 :focus {
   outline: 2px solid #6a11cb;
   outline-offset: 2px;
 }
 
-/* Dark mode media query */
+/* ---------------- Dark mode ---------------- */
 @media (prefers-color-scheme: dark) {
   .streammova-app {
     background: linear-gradient(135deg, #0a0a14, #1e1b4b, #0f0f1a);

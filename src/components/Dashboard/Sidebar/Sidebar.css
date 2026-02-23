@@ -1,8 +1,17 @@
+/* ================================
+   Sidebar.css (CORRECTED)
+   Fix: toggle button was overlapping StreamMova logo.
+   Solution: reserve a "top safe area" inside the sidebar so content starts below the button.
+=================================== */
+
+/* ---------------- Sidebar container ---------------- */
 .sidebar {
   width: 280px;
   background: rgba(16, 18, 27, 0.95);
   backdrop-filter: blur(10px);
-  padding: 30px 0;
+
+  /* ✅ CHANGED: reserve space at top for the fixed toggle button */
+  padding: 92px 0 30px;
 
   position: fixed;
   top: 0;
@@ -10,7 +19,7 @@
   height: 100vh;
   overflow-y: auto;
 
-  /* Desktop default: OPEN */
+  /* OPEN state */
   transform: translateX(0);
   transition: transform 0.28s ease;
 
@@ -19,13 +28,27 @@
   box-shadow: 5px 0 30px rgba(0, 0, 0, 0.3);
 }
 
-/* Closed state (works for all sizes) */
+/* CLOSED state (default) */
 .sidebar.collapsed {
   transform: translateX(-110%);
   box-shadow: none;
 }
 
-/* Logo Container */
+/* ---------------- Overlay (click to close) ---------------- */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 1150;
+}
+
+/* Hide overlay when sidebar is collapsed */
+.sidebar.collapsed ~ .sidebar-overlay {
+  display: none;
+}
+
+/* ---------------- Logo Container ---------------- */
 .logo-container {
   padding: 0 30px 40px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -65,7 +88,7 @@
   letter-spacing: -0.5px;
 }
 
-/* Navigation Sections */
+/* ---------------- Navigation Sections ---------------- */
 .nav-section {
   margin-bottom: 30px;
 }
@@ -79,7 +102,7 @@
   font-weight: 600;
 }
 
-/* Nav Items */
+/* ---------------- Nav Items ---------------- */
 .nav-item {
   display: flex;
   align-items: center;
@@ -95,7 +118,6 @@
   font-size: 15px;
   font-weight: 500;
 
-  /* animation base */
   opacity: 0;
   animation: slideInLeft 0.5s ease-out forwards;
 }
@@ -154,64 +176,68 @@
   transform: translateX(3px);
 }
 
-/* Sidebar Toggle */
+/* ---------------- Sidebar Toggle (Hamburger) ---------------- */
 .sidebar-toggle {
   position: fixed;
   top: 26px;
   left: 26px;
 
-  z-index: 1300; /* ensure above sidebar */
+  z-index: 1300;
   width: 50px;
   height: 50px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
-  color: white;
+
   background: rgba(16, 18, 27, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
+
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.25);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .sidebar-toggle:hover {
   transform: scale(1.06);
   background: rgba(16, 18, 27, 0.95);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
-  border-color: rgba(255, 255, 255, 0.15);
 }
 
-.sidebar-toggle i {
-  font-size: 20px;
-  transition: transform 0.3s ease;
+/* Hamburger wrapper */
+.hamburger {
+  width: 26px;
+  height: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
-.sidebar-toggle:hover i {
-  transform: scale(1.1);
+/* The 3 lines */
+.hamburger-line {
+  display: block;
+  width: 100%;
+  height: 3px;
+  background: #fff;
+  border-radius: 999px;
+  transition: transform 0.25s ease, opacity 0.2s ease;
 }
 
-/* OPTIONAL: add class "is-open" to toggle button in React when sidebar is open */
-.sidebar-toggle.is-open i {
-  transform: rotate(90deg);
+/* Animate to X when open */
+.sidebar-toggle.is-open .hamburger-line:nth-child(1) {
+  transform: translateY(7.5px) rotate(45deg);
 }
 
-.sidebar-toggle-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 8px 20px rgba(106, 17, 203, 0.25);
+.sidebar-toggle.is-open .hamburger-line:nth-child(2) {
+  opacity: 0;
 }
 
-.sidebar-toggle-logo i {
-  font-size: 16px;
+.sidebar-toggle.is-open .hamburger-line:nth-child(3) {
+  transform: translateY(-7.5px) rotate(-45deg);
 }
 
-/* Scrollbar Styling */
+/* ---------------- Scrollbar Styling ---------------- */
 .sidebar::-webkit-scrollbar {
   width: 6px;
 }
@@ -227,35 +253,45 @@
   background: rgba(106, 17, 203, 0.7);
 }
 
-/* Animations */
-.nav-item:nth-child(2) { animation-delay: 0.1s; }
-.nav-item:nth-child(3) { animation-delay: 0.2s; }
-.nav-item:nth-child(4) { animation-delay: 0.3s; }
+/* ---------------- Animations ---------------- */
+.nav-item:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.nav-item:nth-child(3) {
+  animation-delay: 0.2s;
+}
+.nav-item:nth-child(4) {
+  animation-delay: 0.3s;
+}
 
 @keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-20px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
-/* =========================
-   MOBILE/TABLET: Drawer behavior + sizing
-========================= */
+/* ---------------- Mobile sizing ---------------- */
 @media (max-width: 992px) {
   .sidebar {
     width: 260px;
 
-    /* On mobile/tablet, sidebar behaves as a drawer:
-       hidden by default IF you add 'collapsed' in React initial state */
-    transform: translateX(-110%);
-  }
-
-  .sidebar:not(.collapsed) {
-    transform: translateX(0);
+    /* ✅ keep top safe area consistent with smaller toggle position */
+    padding: 84px 0 24px;
   }
 
   .sidebar-toggle {
@@ -267,6 +303,9 @@
 @media (max-width: 576px) {
   .sidebar {
     width: 250px;
+
+    /* ✅ keep top safe area consistent with smaller toggle */
+    padding: 78px 0 20px;
   }
 
   .logo-container {
@@ -303,17 +342,17 @@
     top: 15px;
   }
 
-  .sidebar-toggle-logo {
-    width: 32px;
-    height: 32px;
+  .hamburger {
+    width: 24px;
+    height: 16px;
   }
 
-  .sidebar-toggle-logo i {
-    font-size: 14px;
+  .hamburger-line {
+    height: 3px;
   }
 }
 
-/* Dark mode enhancements */
+/* ---------------- Dark mode enhancements ---------------- */
 @media (prefers-color-scheme: dark) {
   .sidebar {
     background: rgba(10, 12, 18, 0.95);
@@ -326,12 +365,4 @@
   .sidebar-toggle {
     background: rgba(10, 12, 18, 0.9);
   }
-}
-
-.sidebar-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
-  z-index: 1150;
 }

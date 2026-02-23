@@ -11,7 +11,7 @@ import Analytics from "./Analytics/Analytics";
 
 function Dashboard() {
   // Sidebar open/close (hamburger hides/shows)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeNav, setActiveNav] = useState("dashboard");
