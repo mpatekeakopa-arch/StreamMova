@@ -14,6 +14,7 @@ function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [isStreaming, setIsStreaming] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
   const [activeNav, setActiveNav] = useState("dashboard");
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState("");
@@ -183,47 +184,74 @@ function Dashboard() {
     setConnectedChannels((prev) => prev.filter((channel) => channel.id !== channelId));
   };
 
-  // ============ Camera/Stream Functions ============
-  const startCamera = async () => {
-    try {
-      setError("");
+// ============ Camera/Stream Functions (Dashboard owns lifecycle) ============
+const openCamera = async () => {
+  try {
+    setError("");
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30, max: 60 },
-          facingMode: "user",
-        },
-        audio: true,
-      });
+    // If already open, reuse
+    if (cameraStream) return cameraStream;
 
-      streamRef.current = stream;
-      setIsCameraOn(true);
-      setIsStreaming(true);
-    } catch (err) {
-      console.error(err);
-      setError("Unable to access camera or microphone. Please allow permissions.");
-      setIsCameraOn(false);
-      setIsStreaming(false);
-    }
-  };
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30, max: 60 },
+        facingMode: "user",
+      },
+      audio: true,
+    });
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) videoRef.current.srcObject = null;
+    // Keep both: state (truth) + ref (compat)
+    setCameraStream(stream);
+    streamRef.current = stream;
 
+    setIsCameraOn(true);
+
+    // IMPORTANT:
+    // isStreaming should ideally mean "publishing to SRS", not "camera open".
+    // But to avoid breaking your UI today, keep them in sync for now:
+    setIsStreaming(true);
+
+    return stream;
+  } catch (err) {
+    console.error(err);
+    setError("Unable to access camera or microphone. Please allow permissions.");
     setIsCameraOn(false);
     setIsStreaming(false);
-  };
+    setCameraStream(null);
+    streamRef.current = null;
+    return null;
+  }
+};
 
-  const handleStreamToggle = () => {
-    if (!isStreaming) startCamera();
-    else stopCamera();
-  };
+const closeCamera = () => {
+  // stop recording if active
+  if (mediaRecorderRef.current) {
+    try {
+      mediaRecorderRef.current.stop();
+    } catch {}
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+  }
+
+  const s = streamRef.current || cameraStream;
+  if (s) {
+    s.getTracks().forEach((t) => t.stop());
+  }
+
+  streamRef.current = null;
+  setCameraStream(null);
+
+  // StreamOutput will detach video when cameraStream becomes null
+  setIsCameraOn(false);
+  setIsStreaming(false);
+};
+
+const handleStreamToggle = () => {
+  if (!isCameraOn) openCamera();
+  else closeCamera();
+};
 
   // ============ Upload Functions ============
   const openUploadPicker = () => {
@@ -256,7 +284,7 @@ function Dashboard() {
     setUploadTitle((prev) => prev || file.name.replace(/\.[^.]+$/, ""));
 
     // Preview uploaded video in the same preview pane (stop camera if running)
-    if (isCameraOn || isStreaming) stopCamera();
+    if (isCameraOn || isStreaming) closeCamera();
     const video = videoRef.current;
     if (video) {
       video.srcObject = null;
@@ -445,10 +473,11 @@ function Dashboard() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
+     const s = streamRef.current || cameraStream;
+if (s) {
+  s.getTracks().forEach((t) => t.stop());
+}
+streamRef.current = null;
       if (uploadedVideo?.url) URL.revokeObjectURL(uploadedVideo.url);
       if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
       if (scheduleTimeoutRef.current) clearTimeout(scheduleTimeoutRef.current);
