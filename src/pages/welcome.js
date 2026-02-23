@@ -5,18 +5,19 @@ import './welcome.css';
 function Welcome() {
   const navigate = useNavigate();
 
+  // Updated: Get Started now goes to login page
   const handleGetStarted = () => {
-    navigate('/dashboard');
+    navigate('/login');
   };
 
   const handleSignIn = () => {
     navigate('/login');
   };
 
-  // TEMP: Placeholder for Google Auth
+  // TEMP: Google login should also go to login until real OAuth is implemented
   const handleGoogleLogin = () => {
     console.log('Google login clicked');
-    navigate('/dashboard');
+    navigate('/login');
   };
 
   // Open policy.html directly
@@ -79,7 +80,6 @@ function Welcome() {
             <span className="link" onClick={() => navigate('/contact')}>
               Contact
             </span>
-            {/* Fixed: Opens policy.html directly */}
             <span className="link" onClick={handlePolicyClick}>
               Policy
             </span>

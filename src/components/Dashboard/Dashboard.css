@@ -1,7 +1,9 @@
 /* ================================
-   Dashboard.css (Layout only)
-   Goal: Sidebar HIDDEN by default.
-   Opens ONLY when user clicks hamburger.
+   Dashboard.css (Layout Only)
+   - Sidebar hidden by default (React controls)
+   - Desktop: content shifts when sidebar open
+   - Mobile: sidebar overlays
+   - Content always truly centered
 =================================== */
 
 /* ---------------- Base Reset ---------------- */
@@ -17,10 +19,6 @@ body {
 }
 
 /* ---------------- App Shell ---------------- */
-/* IMPORTANT:
-   Default state should be "sidebar-collapsed" on first render.
-   (i.e. <div className="streammova-app sidebar-collapsed">...)
-*/
 .streammova-app {
   display: flex;
   min-height: 100vh;
@@ -30,34 +28,41 @@ body {
   animation: fadeIn 0.5s ease-out;
 }
 
-/* ---------------- Main content layout ---------------- */
-/* Sidebar is hidden by default => NO left margin by default */
+/* ---------------- Main Content ---------------- */
 .main-content {
   flex: 1;
   margin-left: 0;
-  padding: 30px;
+  padding: 40px 22px;
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.1);
   min-height: 100vh;
   overflow-y: auto;
 }
 
-/* When sidebar is OPEN, push content (desktop) */
+/* Desktop shift when sidebar is open */
 .streammova-app:not(.sidebar-collapsed) .main-content {
   margin-left: 280px;
 }
 
-/* ---------------- Dashboard content grid ---------------- */
+/* ---------------- Dashboard Grid ---------------- */
 .dashboard-content {
   display: grid;
   grid-template-columns: 1.6fr 0.9fr 1fr;
   gap: 30px;
   align-items: start;
+
+  /* TRUE CENTERING */
+  width: 100%;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
-/* ---------------- Responsive Design ---------------- */
+/* ---------------- Responsive Layout ---------------- */
+
 @media (max-width: 1400px) {
   .dashboard-content {
     grid-template-columns: 1.8fr 1fr;
+    max-width: 1200px;
   }
 }
 
@@ -65,58 +70,62 @@ body {
   .dashboard-content {
     grid-template-columns: 1fr 1fr;
     gap: 25px;
+    max-width: 980px;
   }
 }
 
 @media (max-width: 1100px) {
   .dashboard-content {
     grid-template-columns: 1fr;
-    gap: 30px;
+    gap: 24px;
+    max-width: 720px;
   }
 }
 
-/* On mobile/tablet:
-   - sidebar overlays (drawer)
-   - main content stays full width
-   - keep left padding so hamburger doesn't overlap content */
+/* ================= MOBILE CENTERING ================= */
+
 @media (max-width: 992px) {
   .main-content {
     margin-left: 0 !important;
-    padding: 30px 20px 30px 80px;
+
+    /* Top space for fixed hamburger button */
+    padding: 96px 18px 36px;
+  }
+
+  .dashboard-content {
+    max-width: 620px;
   }
 }
 
 @media (max-width: 768px) {
-  .dashboard-content {
-    gap: 25px;
+  .main-content {
+    padding: 92px 14px 30px;
   }
 
-  .main-content {
-    padding: 25px 15px 25px 70px;
+  .dashboard-content {
+    max-width: 560px;
+    gap: 20px;
   }
 }
 
 @media (max-width: 576px) {
-  .dashboard-content {
-    gap: 20px;
+  .main-content {
+    padding: 88px 12px 26px;
   }
 
-  .main-content {
-    padding: 20px 12px 20px 65px;
+  .dashboard-content {
+    max-width: 520px;
+    gap: 18px;
   }
 }
 
 /* ---------------- Animations ---------------- */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-/* ---------------- Custom scrollbar for main content ---------------- */
+/* ---------------- Scrollbar ---------------- */
 .main-content::-webkit-scrollbar {
   width: 8px;
 }
@@ -135,13 +144,10 @@ body {
   background: rgba(106, 17, 203, 0.7);
 }
 
-/* ---------------- Loading state ---------------- */
+/* ---------------- Loading ---------------- */
 .loading {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
   display: flex;
   align-items: center;
@@ -159,12 +165,10 @@ body {
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
-/* ---------------- Print styles ---------------- */
+/* ---------------- Print ---------------- */
 @media print {
   .sidebar,
   .sidebar-toggle,
@@ -184,6 +188,7 @@ body {
   .dashboard-content {
     grid-template-columns: 1fr !important;
     gap: 20px !important;
+    max-width: none !important;
   }
 
   body,
@@ -202,7 +207,7 @@ body {
   }
 }
 
-/* ---------------- Utility classes ---------------- */
+/* ---------------- Utilities ---------------- */
 .text-gradient {
   background: linear-gradient(135deg, #6a11cb, #2575fc);
   -webkit-background-clip: text;
@@ -210,13 +215,8 @@ body {
   background-clip: text;
 }
 
-.hidden {
-  display: none !important;
-}
-
-.visible {
-  display: block !important;
-}
+.hidden { display: none !important; }
+.visible { display: block !important; }
 
 /* ---------------- Accessibility ---------------- */
 :focus {
@@ -224,7 +224,7 @@ body {
   outline-offset: 2px;
 }
 
-/* ---------------- Dark mode ---------------- */
+/* ---------------- Dark Mode ---------------- */
 @media (prefers-color-scheme: dark) {
   .streammova-app {
     background: linear-gradient(135deg, #0a0a14, #1e1b4b, #0f0f1a);
