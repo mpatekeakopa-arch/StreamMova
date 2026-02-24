@@ -45,7 +45,7 @@ function StreamOutput({
   const publishingGuardRef = useRef(false); // prevents double-click racing
 
   const rtcUrl = useMemo(() => {
-    const base = srsRtcBaseUrl || "webrtc://84.8.132.222/live";
+    const base = srsRtcBaseUrl || "webrtc://srs.streammova.xyz/live";
     const app = srsApp || "live";
     const stream = srsStream || "test";
 
