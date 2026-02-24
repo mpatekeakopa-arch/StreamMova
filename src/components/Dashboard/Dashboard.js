@@ -528,19 +528,22 @@ streamRef.current = null;
 
         <div className="dashboard-content">
           {/* LEFT COLUMN: Stream output */}
-          <StreamOutput
-            isStreaming={isStreaming}
-            isCameraOn={isCameraOn}
-            error={error}
-            uploadedVideo={uploadedVideo}
-            recordedVideo={recordedVideo}
-            videoRef={videoRef}
-            streamRef={streamRef}
-            connectedChannels={connectedChannels}
-            handleStreamToggle={handleStreamToggle}
-            handleOpenChannelModal={handleOpenChannelModal}
-            handleRemoveChannel={handleRemoveChannel}
-          />
+       <StreamOutput
+        isStreaming={isStreaming}
+        isCameraOn={isCameraOn}
+        error={error}
+        uploadedVideo={uploadedVideo}
+        recordedVideo={recordedVideo}
+        videoRef={videoRef}
+        streamRef={streamRef}
+        cameraStream={cameraStream}     // NEW
+        openCamera={openCamera}         // NEW
+        closeCamera={closeCamera}       // NEW
+        connectedChannels={connectedChannels}
+        handleStreamToggle={handleStreamToggle}
+        handleOpenChannelModal={handleOpenChannelModal}
+        handleRemoveChannel={handleRemoveChannel}
+      />
 
           {/* MIDDLE CARD: Quick Actions */}
           <QuickActions
