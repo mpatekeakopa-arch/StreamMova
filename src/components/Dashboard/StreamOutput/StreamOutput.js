@@ -2,22 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./StreamOutput.css";
 
 /**
- * StreamOutput responsibilities now:
+ * StreamOutput responsibilities:
  * 1) Preview cameraStream (from Dashboard) when camera is on.
- * 2) Allow publishing to SRS via WebRTC (WHIP style via SRS sdk).
+ * 2) Publish to SRS via WebRTC using self-hosted SRS SDK: /vendor/srs/srs.sdk.js
  * 3) Keep old UI behavior for Start/Stop camera (handleStreamToggle).
  *
- * REQUIREMENT:
- * - Add `cameraStream` prop from Dashboard (state)
- * - Add `openCamera` and `closeCamera` props from Dashboard (optional but recommended)
- *
- * SRS:
- * - Your VM exposes rtc_server UDP 8000 and candidate set.
- * - We'll publish to: webrtc://84.8.132.222/live/test  (change app/stream as desired)
- *
- * NOTE:
- * - This uses SRS JS SDK via dynamic import of script: https://cdn.jsdelivr.net/npm/srs-sdk@latest/srs.sdk.js
- *   If you prefer hosting the sdk yourself, replace the URL below.
+ * IMPORTANT:
+ * - Because UI is HTTPS, SRS signaling must also be HTTPS (or browser will block mixed content).
+ * - Long term target: webrtc://srs.streammova.xyz/live/test behind Caddy/Nginx HTTPS proxy.
  */
 
 function StreamOutput({
@@ -34,63 +26,66 @@ function StreamOutput({
   handleOpenChannelModal,
   handleRemoveChannel,
 
-  // NEW from Dashboard (add these props)
+  // NEW from Dashboard
   cameraStream,
   openCamera,
   closeCamera,
 
-  // Optional override if you want to pass VM IP/domain from env later
-  srsRtcBaseUrl, // e.g. "webrtc://84.8.132.222/live"
+  // Optional override
+  srsRtcBaseUrl, // e.g. "webrtc://srs.streammova.xyz/live" OR "webrtc://84.8.132.222/live"
   srsApp, // default "live"
   srsStream, // default "test"
 }) {
   const [isPublishing, setIsPublishing] = useState(false);
-  const [pubError, setPubError] = useState("");
   const [pubStatus, setPubStatus] = useState("idle"); // idle | connecting | publishing | stopped | failed
+  const [pubError, setPubError] = useState("");
+
   const publisherRef = useRef(null);
   const sdkReadyRef = useRef(false);
+  const publishingGuardRef = useRef(false); // prevents double-click racing
 
   const rtcUrl = useMemo(() => {
     const base = srsRtcBaseUrl || "webrtc://84.8.132.222/live";
     const app = srsApp || "live";
     const stream = srsStream || "test";
 
-    // If user passes full base like webrtc://ip/live, keep it.
-    // Otherwise allow base like webrtc://ip and append /app
+    // If base already ends with /app, append /stream
     if (base.endsWith(`/${app}`)) return `${base}/${stream}`;
-    if (base.includes("webrtc://") && base.split("/").length >= 4) {
-      // likely already has app, append stream
-      return `${base}/${stream}`;
-    }
+
+    // If base looks like webrtc://host/app already, append /stream
+    // e.g. webrtc://host/live -> becomes webrtc://host/live/test
+    const parts = base.replace(/^webrtc:\/\//, "").split("/");
+    if (parts.length >= 2) return `${base.replace(/\/+$/, "")}/${stream}`;
+
+    // Otherwise, treat as webrtc://host and append /app/stream
     return `${base.replace(/\/+$/, "")}/${app}/${stream}`;
   }, [srsRtcBaseUrl, srsApp, srsStream]);
 
   // -----------------------------
-  // Load SRS SDK dynamically once
+  // Load SRS SDK (self-hosted)
   // -----------------------------
-  const loadSrsSdk = async () => {
+  const loadSrsSdkOnce = async () => {
     if (sdkReadyRef.current) return true;
     if (window.SrsRtcPublisherAsync) {
       sdkReadyRef.current = true;
       return true;
     }
 
-    // Avoid injecting multiple times
+    // Prevent multiple injections
     const existing = document.querySelector('script[data-srs-sdk="1"]');
     if (existing) {
-      await new Promise((r) => {
-        existing.addEventListener("load", r, { once: true });
-        existing.addEventListener("error", r, { once: true });
+      const ok = await new Promise((resolve) => {
+        existing.addEventListener("load", () => resolve(true), { once: true });
+        existing.addEventListener("error", () => resolve(false), { once: true });
       });
-      sdkReadyRef.current = !!window.SrsRtcPublisherAsync;
+      sdkReadyRef.current = ok && !!window.SrsRtcPublisherAsync;
       return sdkReadyRef.current;
     }
 
     const script = document.createElement("script");
     script.async = true;
     script.dataset.srsSdk = "1";
-    // SRS official sdk is commonly served from jsdelivr. Change if you want.
-    script.src = "https://cdn.jsdelivr.net/npm/srs-sdk@latest/srs.sdk.js";
+    script.src = "/vendor/srs/srs.sdk.js";
 
     const ok = await new Promise((resolve) => {
       script.onload = () => resolve(true);
@@ -109,41 +104,42 @@ function StreamOutput({
     const video = videoRef?.current;
     if (!video) return;
 
-    // If camera is off (or no stream), detach
+    // Detach camera preview when camera off OR no stream
     if (!isCameraOn || !cameraStream) {
-      // Only clear srcObject; do NOT touch uploaded/recorded previews (they use video.src)
       if (video.srcObject) video.srcObject = null;
       return;
     }
 
-    // If an upload/recording preview is playing via `video.src`, clear it for live preview
+    // If uploaded/recorded preview is playing via video.src, clear it
     if (video.src) {
       try {
         video.pause();
       } catch {}
       video.removeAttribute("src");
-      video.load();
+      try {
+        video.load();
+      } catch {}
     }
 
     video.srcObject = cameraStream;
 
-    const tryPlay = async () => {
+    (async () => {
       try {
         await video.play();
       } catch (e) {
-        console.error("Video play failed:", e);
+        // autoplay might be blocked; not fatal
+        console.warn("Preview play blocked:", e);
       }
-    };
-
-    tryPlay();
+    })();
 
     return () => {
-      if (video && video.srcObject === cameraStream) video.srcObject = null;
+      if (video && video.srcObject === cameraStream) {
+        video.srcObject = null;
+      }
     };
   }, [isCameraOn, cameraStream, videoRef]);
 
-  // Keep legacy ref compatibility: if Dashboard still updates streamRef, fine.
-  // If not, mirror cameraStream into streamRef so recording logic keeps working.
+  // Mirror cameraStream into legacy streamRef for older recording logic
   useEffect(() => {
     if (!streamRef) return;
     if (cameraStream && streamRef.current !== cameraStream) streamRef.current = cameraStream;
@@ -151,42 +147,63 @@ function StreamOutput({
   }, [cameraStream, streamRef]);
 
   // -----------------------------
-  // Publish/unpublish to SRS
+  // Stop publish helper
+  // -----------------------------
+  const stopPublish = async () => {
+    setPubError("");
+    setPubStatus("stopped");
+
+    try {
+      const pub = publisherRef.current;
+      if (pub) {
+        await pub.close?.();
+      }
+    } catch (e) {
+      console.error("Stop publish error:", e);
+    } finally {
+      publisherRef.current = null;
+      setIsPublishing(false);
+      publishingGuardRef.current = false;
+    }
+  };
+
+  // -----------------------------
+  // Start publish
   // -----------------------------
   const startPublish = async () => {
+    if (publishingGuardRef.current) return;
+    publishingGuardRef.current = true;
+
     setPubError("");
-
-    // Ensure camera is available
-    let s = cameraStream || streamRef?.current;
-    if (!s) {
-      if (openCamera) {
-        s = await openCamera();
-      } else {
-        // fallback: ask user to click Start Multistream first
-        setPubError('Turn on the camera first (click "Start Multistream").');
-        setPubStatus("failed");
-        return;
-      }
-    }
-    if (!s) {
-      setPubError("Camera stream not available.");
-      setPubStatus("failed");
-      return;
-    }
-
     setPubStatus("connecting");
     setIsPublishing(true);
 
-    const ok = await loadSrsSdk();
-    if (!ok) {
-      setPubError("Failed to load SRS WebRTC SDK (srs.sdk.js).");
-      setPubStatus("failed");
-      setIsPublishing(false);
-      return;
-    }
-
     try {
-      // stop existing publisher if any
+      // Ensure camera stream exists
+      let s = cameraStream || streamRef?.current;
+      if (!s) {
+        if (openCamera) {
+          s = await openCamera();
+        }
+      }
+      if (!s) {
+        setPubError('Camera stream not available. Click "Start Multistream" first.');
+        setPubStatus("failed");
+        setIsPublishing(false);
+        publishingGuardRef.current = false;
+        return;
+      }
+
+      const ok = await loadSrsSdkOnce();
+      if (!ok) {
+        setPubError('Failed to load SRS SDK. Verify "/vendor/srs/srs.sdk.js" is reachable.');
+        setPubStatus("failed");
+        setIsPublishing(false);
+        publishingGuardRef.current = false;
+        return;
+      }
+
+      // Close any existing publisher first
       if (publisherRef.current) {
         try {
           await publisherRef.current.close?.();
@@ -194,41 +211,56 @@ function StreamOutput({
         publisherRef.current = null;
       }
 
-      const pub = new window.SrsRtcPublisherAsync();
+      const Publisher = window.SrsRtcPublisherAsync;
+      if (!Publisher) {
+        setPubError("SRS SDK loaded but SrsRtcPublisherAsync is missing.");
+        setPubStatus("failed");
+        setIsPublishing(false);
+        publishingGuardRef.current = false;
+        return;
+      }
 
-      // Try to use your preview video element (optional)
-      // The SDK can also work without binding, but this provides local preview continuity.
+      const pub = new Publisher();
+
+      // Try to publish using existing MediaStream if SDK supports it.
+      // Different SDK builds differ; handle both gracefully.
+      if (typeof pub.publish !== "function") {
+        setPubError("SRS publisher object missing publish() method.");
+        setPubStatus("failed");
+        setIsPublishing(false);
+        publishingGuardRef.current = false;
+        return;
+      }
+
       try {
-        const video = videoRef?.current;
-        if (video) {
-          // Some versions expose `publish(url, { video })`, others `publish(url)`
-          // We'll just set srcObject for preview ourselves already, so this is optional.
-          // pub.attach?.(video); // not always available
+        if (pub.publish.length >= 2) {
+          await pub.publish(rtcUrl, s);
+        } else {
+          await pub.publish(rtcUrl);
         }
-      } catch {}
+      } catch (e) {
+        // Provide a useful hint for the very common next blocker:
+        // HTTPS app cannot call HTTP signaling endpoints (mixed content).
+        const msg = String(e?.message || e);
+        const mixedHint =
+          /mixed content|blocked|insecure|http:\/\//i.test(msg)
+            ? "\n\nLikely cause: your app is HTTPS, but SRS signaling is not HTTPS. Use webrtc://srs.streammova.xyz/... behind HTTPS reverse proxy."
+            : "";
 
-      // Publish to SRS
-      // Many SRS SDK versions accept `publish(url, stream)` to use an existing MediaStream.
-      // We'll attempt that, and fallback if not supported.
-      let res;
-      if (pub.publish.length >= 2) {
-        res = await pub.publish(rtcUrl, s);
-      } else {
-        // fallback (SDK will call getUserMedia internally)
-        res = await pub.publish(rtcUrl);
+        throw new Error(msg + mixedHint);
       }
 
       publisherRef.current = pub;
       setPubStatus("publishing");
       setIsPublishing(true);
-
-      // If SDK returns session info, we keep it silent (avoid noisy UI)
-      return res;
+      publishingGuardRef.current = false;
     } catch (e) {
-      console.error(e);
+      console.error("Publish error:", e);
       setPubError(String(e?.message || e));
       setPubStatus("failed");
       setIsPublishing(false);
+      publishingGuardRef.current = false;
+
       try {
         if (publisherRef.current) await publisherRef.current.close?.();
       } catch {}
@@ -236,23 +268,7 @@ function StreamOutput({
     }
   };
 
-  const stopPublish = async () => {
-    setPubError("");
-    setPubStatus("stopped");
-
-    try {
-      if (publisherRef.current) {
-        await publisherRef.current.close?.();
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      publisherRef.current = null;
-      setIsPublishing(false);
-    }
-  };
-
-  // If user stops camera, stop publishing automatically (prevents ghost sessions)
+  // If user stops camera, stop publishing automatically
   useEffect(() => {
     if (!isCameraOn && isPublishing) {
       stopPublish();
@@ -271,13 +287,14 @@ function StreamOutput({
   }, []);
 
   const liveLabel = isPublishing ? "LIVE TO SRS" : isStreaming ? "CAMERA ON" : "READY";
+  const isBusy = pubStatus === "connecting";
 
   return (
     <div className="stream-output">
       <div className="section-header">
         <h2>Live Stream Preview</h2>
 
-        <div className={`status-indicator ${isPublishing ? "live" : isStreaming ? "ready" : "ready"}`}>
+        <div className={`status-indicator ${isPublishing ? "live" : "ready"}`}>
           {liveLabel}
         </div>
       </div>
@@ -302,33 +319,33 @@ function StreamOutput({
       )}
 
       <div className="stream-controls">
-        {/* Camera toggle (existing behavior) */}
+        {/* Camera toggle */}
         <button
           className={`btn ${isStreaming ? "btn-danger" : "btn-primary"}`}
           onClick={handleStreamToggle}
-          disabled={pubStatus === "connecting"}
+          disabled={isBusy}
         >
           <i className={`fas fa-${isStreaming ? "stop" : "play"}`}></i>
           {isStreaming ? "Stop Camera" : "Start Multistream"}
         </button>
 
-        {/* Publish toggle (NEW) */}
+        {/* Publish toggle */}
         <button
           className={`btn ${isPublishing ? "btn-danger" : "btn-primary"}`}
           onClick={isPublishing ? stopPublish : startPublish}
-          disabled={pubStatus === "connecting"}
+          disabled={isBusy}
           title={rtcUrl}
           style={{ marginLeft: 10 }}
         >
           <i className={`fas fa-${isPublishing ? "stop" : "broadcast-tower"}`}></i>
-          {pubStatus === "connecting"
-            ? "Connecting…"
-            : isPublishing
-            ? "Stop Live (SRS)"
-            : "Go Live (SRS)"}
+          {isBusy ? "Connecting…" : isPublishing ? "Stop Live (SRS)" : "Go Live (SRS)"}
         </button>
 
-        <button className="btn btn-secondary" onClick={handleOpenChannelModal} style={{ marginLeft: 10 }}>
+        <button
+          className="btn btn-secondary"
+          onClick={handleOpenChannelModal}
+          style={{ marginLeft: 10 }}
+        >
           <i className="fas fa-plus"></i>
           Add channels
         </button>
@@ -355,21 +372,14 @@ function StreamOutput({
               <div key={channel.id} className="channel-item">
                 <div className="channel-info">
                   <span className="channel-platform-icon">
-                    <img
-                      src={channel.logo}
-                      alt={`${channel.name} logo`}
-                      className="channel-logo"
-                    />
+                    <img src={channel.logo} alt={`${channel.name} logo`} className="channel-logo" />
                   </span>
                   <span className="channel-name">{channel.name}</span>
                 </div>
 
                 <div className="channel-actions">
                   <span className="channel-status">
-                    <i
-                      className="fas fa-circle"
-                      style={{ color: "#38ef7d", fontSize: "10px" }}
-                    ></i>
+                    <i className="fas fa-circle" style={{ color: "#38ef7d", fontSize: "10px" }}></i>
                     Connected
                   </span>
 
