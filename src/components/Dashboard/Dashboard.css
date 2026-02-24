@@ -1,11 +1,3 @@
-/* ================================
-   Dashboard.css (Layout Only)
-   - Sidebar hidden by default (React controls)
-   - Desktop: content shifts when sidebar open
-   - Mobile: sidebar overlays
-   - Content always truly centered
-=================================== */
-
 /* ---------------- Base Reset ---------------- */
 * {
   margin: 0;

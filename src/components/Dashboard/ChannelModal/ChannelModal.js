@@ -115,7 +115,7 @@ function ChannelModal({
                     </>
                   )}
 
-                  {channelForm.testStatus === "testing" && (
+                  {channelForm.testStatus === "Connecting" && (
                     <>
                       <i
                         className="fas fa-circle"
@@ -164,13 +164,13 @@ function ChannelModal({
             className="btn btn-primary"
             onClick={handleTestConnection}
             disabled={
-              channelForm.testStatus === "testing" ||
+              channelForm.testStatus === "Connecting" ||
               !channelForm.platform ||
               !channelForm.streamKey
             }
           >
             <i className="fas fa-plug"></i>
-            {channelForm.testStatus === "testing" ? "Testing..." : "Test & Connect"}
+            {channelForm.testStatus === "Connecting" ? "Connecting..." : "Connect"}
           </button>
         </div>
       </div>
