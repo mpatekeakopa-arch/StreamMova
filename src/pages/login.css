@@ -53,60 +53,67 @@
 }
 
 .login-form {
-  display: grid;
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   text-align: left;
+  margin-bottom: 20px; /* Space between form and Google button */
+  width: 100%;
 }
 
 .login-form label {
   display: flex;
   flex-direction: column;
-  font-size: 12px;
+  font-size: 13px;
   gap: 6px;
   opacity: 0.95;
+  color: #ffffff;
 }
 
 .login-form input {
-  padding: 12px 12px;
+  padding: 14px 16px;
   border-radius: 12px;
 
   /* Dark input on glass card */
-  background: rgba(15, 12, 41, 0.55);
+  background: rgba(15, 12, 41, 0.6);
   color: #ffffff;
 
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   outline: none;
 
-  font-size: 14px;
+  font-size: 15px;
   transition: border-color 0.25s ease, box-shadow 0.25s ease,
     background 0.25s ease;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .login-form input::placeholder {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .login-form input:focus {
-  border-color: rgba(0, 219, 222, 0.9);
-  box-shadow: 0 0 0 4px rgba(0, 219, 222, 0.15);
-  background: rgba(15, 12, 41, 0.7);
+  border-color: #00dbde;
+  box-shadow: 0 0 0 3px rgba(0, 219, 222, 0.2);
+  background: rgba(15, 12, 41, 0.8);
 }
 
 .login-error {
-  background: rgba(252, 0, 255, 0.12);
-  border: 1px solid rgba(252, 0, 255, 0.18);
-  color: rgba(255, 255, 255, 0.92);
+  background: rgba(252, 0, 255, 0.15);
+  border: 1px solid rgba(252, 0, 255, 0.25);
+  color: #ffffff;
 
-  padding: 10px 12px;
+  padding: 12px 16px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
+  margin: 5px 0;
 }
 
 /* Primary CTA — match get-started-btn gradient */
 .login-form button {
-  margin-top: 8px;
-  padding: 14px 18px;
+  margin-top: 10px;
+  padding: 16px 18px;
   border-radius: 50px;
 
   border: none;
@@ -119,51 +126,120 @@
 
   cursor: pointer;
   transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease;
+  width: 100%;
+  border: none;
 }
 
-.login-form button:hover {
+.login-form button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 25px rgba(0, 219, 222, 0.3);
 }
 
 .login-form button:disabled {
-  opacity: 0.65;
+  opacity: 0.6;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
 }
 
-.login-footer {
-  margin-top: 18px;
-  text-align: center;
-  font-size: 13px;
-  opacity: 0.85;
-
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  padding-top: 16px;
+/* Google button styling - matches your login.js structure */
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: 50px;
+  
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 12, 41, 0.6);
+  color: #ffffff;
+  
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  
+  cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+  margin: 5px 0 15px 0;
+  box-sizing: border-box;
 }
 
-.login-footer a {
+.google-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  background: rgba(15, 12, 41, 0.8);
+  border-color: #00dbde;
+}
+
+.google-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.google-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Login footer with proper spacing */
+.login-footer {
+  margin-top: 15px;
+  text-align: center;
+  font-size: 14px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+/* Footer link buttons - matching your link-btn class */
+.login-footer button.link-btn,
+.login-footer a.link-btn {
   text-decoration: none;
   font-weight: 600;
-
-  /* Use the teal highlight from welcome hover */
   color: #00dbde;
-  transition: color 0.25s ease, background 0.25s ease;
-  padding: 4px 8px;
-  border-radius: 6px;
+  transition: all 0.25s ease;
+  padding: 8px 16px;
+  border-radius: 30px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-block;
 }
 
-.login-footer a:hover {
+.login-footer button.link-btn:hover:not(:disabled),
+.login-footer a.link-btn:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 219, 222, 0.15);
 }
 
-/* Animations (aligned with your welcome page style) */
+.login-footer button.link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.login-footer .separator {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 14px;
+}
+
+/* Animations */
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translateY(20px);
   }
   to {
     opacity: 1;
@@ -174,10 +250,25 @@
 /* Responsive */
 @media (max-width: 480px) {
   .login-card {
-    padding: 28px 20px;
+    padding: 25px 20px;
   }
 
   .login-title {
-    font-size: 1.9rem;
+    font-size: 2rem;
+  }
+  
+  .login-footer {
+    gap: 10px;
+    flex-direction: column;
+  }
+  
+  .login-footer .separator {
+    display: none;
+  }
+  
+  .login-form input,
+  .login-form button,
+  .google-btn {
+    padding: 14px 16px;
   }
 }
