@@ -7,7 +7,7 @@ function Welcome() {
 
   // Updated: Get Started now goes to login page
   const handleGetStarted = () => {
-    navigate('/login');
+    navigate('/Dashboard');
   };
 
   const handleSignIn = () => {
