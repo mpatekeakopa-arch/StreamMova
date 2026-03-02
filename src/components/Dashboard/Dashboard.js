@@ -210,20 +210,6 @@ const openCamera = async () => {
       audio: true,
     };
 
-    // Attempt 2: even simpler
-    const fallback1 = {
-      video: {
-        facingMode: { ideal: "user" },
-      },
-      audio: true,
-    };
-
-    // Attempt 3: bare minimum
-    const fallback2 = {
-      video: true,
-      audio: true,
-    };
-
     let stream = null;
     try {
       stream = await tryGetStream(preferred);
