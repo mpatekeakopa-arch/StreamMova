@@ -120,8 +120,20 @@ function StreamOutput({
         video.load();
       } catch {}
     }
+    // fully reset the element
+      try {
+        video.pause();
+      } catch {}
+      video.removeAttribute("src");
+      video.srcObject = null;
+      try {
+        video.load();
+      } catch {}
 
     video.srcObject = cameraStream;
+
+    video.muted = true;
+    video.playsInline = true;
 
     (async () => {
       try {
