@@ -257,7 +257,7 @@ const openCamera = async () => {
     setIsCameraOn(true);
 
     // Keep current UI behavior
-    setIsStreaming(true);
+    setIsStreaming(false);
 
     return stream;
   } catch (err) {
