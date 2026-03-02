@@ -1,22 +1,17 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import './welcome.css'; 
+import './welcome.css';
 
 function Welcome() {
   const navigate = useNavigate();
 
-  // Updated: Get Started now goes to login page
+  // Get Started → Registration page
   const handleGetStarted = () => {
-    navigate('/Dashboard');
+    navigate('/register');
   };
 
+  // Sign In → Login page
   const handleSignIn = () => {
-    navigate('/login');
-  };
-
-  // TEMP: Google login should also go to login until real OAuth is implemented
-  const handleGoogleLogin = () => {
-    console.log('Google login clicked');
     navigate('/login');
   };
 
@@ -52,18 +47,6 @@ function Welcome() {
               onClick={handleSignIn}
             >
               Sign In
-            </button>
-
-            <button 
-              className="google-btn"
-              onClick={handleGoogleLogin}
-            >
-              <img
-                src="https://developers.google.com/identity/images/g-logo.png"
-                alt="Google"
-                className="google-icon"
-              />
-              Log in with Google
             </button>
           </div>
         </div>
