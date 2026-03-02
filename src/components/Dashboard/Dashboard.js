@@ -189,18 +189,53 @@ const openCamera = async () => {
   try {
     setError("");
 
-    // If already open, reuse
-    if (cameraStream) return cameraStream;
+    // Reuse if already open and tracks are live
+    if (cameraStream && cameraStream.getTracks().some(t => t.readyState === "live")) {
+      return cameraStream;
+    }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
+    // Helper: try constraints
+    const tryGetStream = async (constraints) => {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    };
+
+    // Attempt 1: preferred (but not too aggressive)
+    const preferred = {
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30, max: 60 },
-        facingMode: "user",
+        facingMode: { ideal: "user" },
+        width: { ideal: 640 },     // was 1280 (too high for some phones)
+        height: { ideal: 480 },    // was 720
+        frameRate: { ideal: 24, max: 30 }, // was max 60 (too aggressive)
       },
       audio: true,
-    });
+    };
+
+    // Attempt 2: even simpler
+    const fallback1 = {
+      video: {
+        facingMode: { ideal: "user" },
+      },
+      audio: true,
+    };
+
+    // Attempt 3: bare minimum
+    const fallback2 = {
+      video: true,
+      audio: true,
+    };
+
+    let stream = null;
+    try {
+      stream = await tryGetStream(preferred);
+    } catch (e1) {
+      console.warn("getUserMedia preferred failed, trying fallback1:", e1);
+      try {
+        stream = await tryGetStream(fallback1);
+      } catch (e2) {
+        console.warn("getUserMedia fallback1 failed, trying fallback2:", e2);
+        stream = await tryGetStream(fallback2);
+      }
+    }
 
     // Keep both: state (truth) + ref (compat)
     setCameraStream(stream);
@@ -208,15 +243,26 @@ const openCamera = async () => {
 
     setIsCameraOn(true);
 
-    // IMPORTANT:
-    // isStreaming should ideally mean "publishing to SRS", not "camera open".
-    // But to avoid breaking your UI today, keep them in sync for now:
+    // Keep current UI behavior
     setIsStreaming(true);
 
     return stream;
   } catch (err) {
-    console.error(err);
-    setError("Unable to access camera or microphone. Please allow permissions.");
+    console.error("openCamera failed:", err);
+
+    // Surface the real reason if possible
+    const msg =
+      err?.name === "NotAllowedError"
+        ? "Permission denied. Please allow camera and microphone access."
+        : err?.name === "NotFoundError"
+        ? "No camera found on this device."
+        : err?.name === "NotReadableError"
+        ? "Camera is already in use by another app. Close other apps using the camera and try again."
+        : err?.name === "OverconstrainedError"
+        ? "Camera settings not supported on this phone. Try again."
+        : "Unable to access camera or microphone. Please allow permissions.";
+
+    setError(msg);
     setIsCameraOn(false);
     setIsStreaming(false);
     setCameraStream(null);
@@ -243,7 +289,6 @@ const closeCamera = () => {
   streamRef.current = null;
   setCameraStream(null);
 
-  // StreamOutput will detach video when cameraStream becomes null
   setIsCameraOn(false);
   setIsStreaming(false);
 };
