@@ -227,15 +227,28 @@ const openCamera = async () => {
     let stream = null;
     try {
       stream = await tryGetStream(preferred);
-    } catch (e1) {
-      console.warn("getUserMedia preferred failed, trying fallback1:", e1);
-      try {
-        stream = await tryGetStream(fallback1);
-      } catch (e2) {
-        console.warn("getUserMedia fallback1 failed, trying fallback2:", e2);
-        stream = await tryGetStream(fallback2);
-      }
-    }
+    } catch (err) {
+  console.error("openCamera failed:", err);
+
+  const debug = `${err?.name || "Error"}: ${err?.message || String(err)}`;
+  const msg =
+    err?.name === "NotAllowedError"
+      ? "Permission denied. Please allow camera and microphone access."
+      : err?.name === "NotFoundError"
+      ? "No camera found on this device."
+      : err?.name === "NotReadableError"
+      ? "Camera is already in use by another app. Close other apps using the camera and try again."
+      : err?.name === "OverconstrainedError"
+      ? "Camera settings not supported on this phone. Try again."
+      : `Unable to access camera/microphone. (${debug})`;
+
+  setError(msg);
+  setIsCameraOn(false);
+  setIsStreaming(false);
+  setCameraStream(null);
+  streamRef.current = null;
+  return null;
+}
 
     // Keep both: state (truth) + ref (compat)
     setCameraStream(stream);
