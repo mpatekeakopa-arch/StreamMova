@@ -67,10 +67,16 @@ function Dashboard() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const displayName =
-    user?.displayName || user?.name || user?.fullName || user?.email || "User";
-  const planName = user?.plan || user?.subscription || user?.tier || "Free Plan";
-  const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
+    const displayName =
+      user?.username || user?.email || "User";
+    
+    const planName =
+      user?.plan || user?.subscription || user?.tier || "Free Plan";
+    
+    const avatarInitials = useMemo(
+      () => getInitials(displayName),
+      [displayName]
+    );
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
