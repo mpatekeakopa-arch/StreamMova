@@ -59,6 +59,10 @@ function Dashboard() {
   const modalRef = useRef(null);
 
   // If user changes in localStorage (e.g., after login), reflect it
+const planName = user?.plan || user?.subscription || user?.tier || "Free Plan";
+
+const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
+  
   const displayName =
     user?.username ||
     user?.user_metadata?.username ||
