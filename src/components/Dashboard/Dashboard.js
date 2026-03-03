@@ -60,16 +60,10 @@ function Dashboard() {
 
   // If user changes in localStorage (e.g., after login), reflect it
 
-const displayName = user?.username || user?.displayName || user?.name || user?.fullName || user?.email || "User";
-
-
 const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
-  
-  const displayName =
-    user?.username ||
-    user?.user_metadata?.username ||
-    user?.email ||
-    "User";
+
+const displayName =
+  user?.username || user?.displayName || user?.name || user?.fullName || user?.email || "User";
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
