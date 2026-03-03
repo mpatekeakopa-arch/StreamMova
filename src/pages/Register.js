@@ -27,40 +27,30 @@ export default function Register() {
     if (password !== confirm) return setMsg("Passwords do not match.");
 
     setLoading(true);
-
     try {
-      const redirectTo = `${window.location.origin}/login`;
-
+      // IMPORTANT:
+      // - Put username in user_metadata so the DB trigger can create profiles row.
+      // - emailRedirectTo must match your Supabase Auth settings allow-list.
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { username: u },          // goes into raw_user_meta_data.username
-          emailRedirectTo: redirectTo     // ensures confirm link returns to your site
-        }
+          data: { username: u },
+          emailRedirectTo: "https://app.streammova.xyz/login",
+        },
       });
 
       if (error) throw error;
 
-      // If email confirmation is ON, session may be null and that's OK.
-      // Profile is created by DB trigger after user row exists.
-      if (!data?.session) {
-        setMsg("✅ Account created. Check your email to confirm, then sign in.");
-        setTimeout(() => navigate("/login"), 1200);
-        return;
-      }
-
-      // If email confirmation is OFF, you get a session immediately.
-      setMsg("✅ Account created. Redirecting...");
-      setTimeout(() => navigate("/dashboard"), 800);
-
+      // If confirmation required => no session. That's fine.
+      setMsg("✅ Account created. Please check your email to confirm, then sign in.");
+      setTimeout(() => navigate("/login"), 1200);
     } catch (err) {
       const message = err?.message || String(err);
-
-      if (message.toLowerCase().includes("rate limit")) {
-        setMsg("❌ Too many signup attempts. Please wait a few minutes and try again.");
-      } else if (message.toLowerCase().includes("username") && message.toLowerCase().includes("duplicate")) {
-        setMsg("❌ Username already taken. Please choose another.");
+      if (message.toLowerCase().includes("rate limit") || message.includes("429")) {
+        setMsg("❌ Too many attempts. Please wait a bit and try again.");
+      } else if (message.toLowerCase().includes("user already registered")) {
+        setMsg("❌ This email is already registered. Try signing in.");
       } else {
         setMsg(`❌ ${message}`);
       }
