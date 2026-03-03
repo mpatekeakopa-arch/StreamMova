@@ -20,7 +20,7 @@ function Dashboard() {
   const [error, setError] = useState("");
 
   // Logged-in user UI (from localStorage by default)
-  const [user, setUser] = useState(() => readUserFromStorage());
+
 
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [connectedChannels, setConnectedChannels] = useState([]);
@@ -60,6 +60,8 @@ function Dashboard() {
 
   // If user changes in localStorage (e.g., after login), reflect it
 const planName = user?.plan || user?.subscription || user?.tier || "Free Plan";
+const displayName = user?.username || user?.displayName || user?.name || user?.fullName || user?.email || "User";
+
 
 const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
   
