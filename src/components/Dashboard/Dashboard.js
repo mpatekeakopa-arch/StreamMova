@@ -21,6 +21,9 @@ function Dashboard() {
 
     // Logged-in user UI (from localStorage by default)
   const [user, setUser] = useState(() => readUserFromStorage());
+  
+  const [showChannelModal, setShowChannelModal] = useState(false);
+  const [connectedChannels, setConnectedChannels] = useState([]);
 
   // Keep user state in sync if localStorage changes (login/logout in another tab)
   useEffect(() => {
