@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./login.css";
-import { supabase } from "../lib/supabaseClient"; // adjust path if your Login.js lives elsewhere
+import { supabase } from "../lib/supabaseClient";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -26,31 +26,10 @@ export default function Login() {
         email,
         password,
       });
-
       if (authError) throw authError;
 
-      // Optional: store minimal user locally if your UI expects it
-     const { data } = await supabase.auth.getUser();
-        const u = data?.user;
-        
-        if (u?.id) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username")
-            .eq("id", u.id)
-            .single();
-        
-          localStorage.setItem(
-            "user",
-            JSON.stringify({
-              id: u.id,
-              email: u.email,
-              username: profile?.username || null,
-            })
-          );
-        }
-
-      window.location.href = "/dashboard";
+      // ✅ No localStorage — AuthProvider will pick up the session via onAuthStateChange
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(err?.message || "Login failed.");
     } finally {
@@ -62,9 +41,7 @@ export default function Login() {
     <div className="login-page">
       <div className="login-card">
         <h1 className="login-title">StreamMova</h1>
-        <p className="login-subtitle">
-          Sign in to manage your streams and destinations
-        </p>
+        <p className="login-subtitle">Sign in to manage your streams and destinations</p>
 
         <form onSubmit={handleSubmit} className="login-form">
           <label>
