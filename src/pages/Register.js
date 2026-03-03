@@ -10,62 +10,56 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
-  const [success, setSuccess] = useState(false);
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setMsg("");
-    setSuccess(false);
 
     const u = username.trim();
-    const em = email.trim();
 
     if (!u) return setMsg("Username is required.");
     if (u.length < 3) return setMsg("Username must be at least 3 characters.");
-    if (!/^[a-zA-Z0-9_]+$/.test(u))
-      return setMsg("Username can only use letters, numbers, underscore.");
-    if (!em || !password) return setMsg("Email and password are required.");
+    if (!/^[a-zA-Z0-9_]+$/.test(u)) return setMsg("Username can only use letters, numbers, underscore.");
+    if (!email || !password) return setMsg("Email and password are required.");
     if (password.length < 6) return setMsg("Password must be at least 6 characters.");
     if (password !== confirm) return setMsg("Passwords do not match.");
 
     setLoading(true);
+
     try {
-      // ✅ Create auth user AND send username via metadata.
-      // The DB trigger (handle_new_user) will upsert profiles.username from raw_user_meta_data.
+      const redirectTo = `${window.location.origin}/login`;
+
       const { data, error } = await supabase.auth.signUp({
-        email: em,
+        email,
         password,
         options: {
-          data: { username: u },
-        },
+          data: { username: u },          // goes into raw_user_meta_data.username
+          emailRedirectTo: redirectTo     // ensures confirm link returns to your site
+        }
       });
 
       if (error) throw error;
 
-      // If email confirmation is ON, session may be null until user confirms.
+      // If email confirmation is ON, session may be null and that's OK.
+      // Profile is created by DB trigger after user row exists.
       if (!data?.session) {
-        setSuccess(true);
-        setMsg("✅ Account created. Please check your email to verify, then sign in.");
-        setTimeout(() => navigate("/login"), 1400);
+        setMsg("✅ Account created. Check your email to confirm, then sign in.");
+        setTimeout(() => navigate("/login"), 1200);
         return;
       }
 
-      // If confirmations are OFF, user is already signed in.
-      setSuccess(true);
-      setMsg("✅ Account created. Redirecting to sign in…");
-      setTimeout(() => navigate("/login"), 800);
+      // If email confirmation is OFF, you get a session immediately.
+      setMsg("✅ Account created. Redirecting...");
+      setTimeout(() => navigate("/dashboard"), 800);
+
     } catch (err) {
       const message = err?.message || String(err);
 
-      if (message.toLowerCase().includes("too many requests") || message.includes("429")) {
-        setMsg("❌ Too many signup attempts. Please wait a bit and try again.");
-      } else if (
-        message.toLowerCase().includes("duplicate") ||
-        message.toLowerCase().includes("unique")
-      ) {
+      if (message.toLowerCase().includes("rate limit")) {
+        setMsg("❌ Too many signup attempts. Please wait a few minutes and try again.");
+      } else if (message.toLowerCase().includes("username") && message.toLowerCase().includes("duplicate")) {
         setMsg("❌ Username already taken. Please choose another.");
       } else {
         setMsg(`❌ ${message}`);
@@ -126,9 +120,7 @@ export default function Register() {
             {loading ? "Creating..." : "Create account"}
           </button>
 
-          {msg ? (
-            <div className={`register-msg ${success ? "success" : "error"}`}>{msg}</div>
-          ) : null}
+          {msg ? <div className="register-msg">{msg}</div> : null}
         </form>
 
         <div className="register-footer">
