@@ -30,13 +30,25 @@ export default function Login() {
       if (authError) throw authError;
 
       // Optional: store minimal user locally if your UI expects it
-      const { data } = await supabase.auth.getUser();
-      if (data?.user) {
-        localStorage.setItem(
-          "user",
-          JSON.stringify({ id: data.user.id, email: data.user.email })
-        );
-      }
+     const { data } = await supabase.auth.getUser();
+        const u = data?.user;
+        
+        if (u?.id) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("username")
+            .eq("id", u.id)
+            .single();
+        
+          localStorage.setItem(
+            "user",
+            JSON.stringify({
+              id: u.id,
+              email: u.email,
+              username: profile?.username || null,
+            })
+          );
+        }
 
       window.location.href = "/dashboard";
     } catch (err) {
