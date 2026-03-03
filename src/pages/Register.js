@@ -31,11 +31,11 @@ export default function Register() {
       // IMPORTANT:
       // - Put username in user_metadata so the DB trigger can create profiles row.
       // - emailRedirectTo must match your Supabase Auth settings allow-list.
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { username: u },
+         
           emailRedirectTo: "https://app.streammova.xyz/login",
         },
       });
