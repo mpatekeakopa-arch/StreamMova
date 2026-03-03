@@ -19,12 +19,26 @@ function Dashboard() {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState("");
 
-  // Logged-in user UI (from localStorage by default)
+    // Logged-in user UI (from localStorage by default)
+  const [user, setUser] = useState(() => readUserFromStorage());
 
+  // Keep user state in sync if localStorage changes (login/logout in another tab)
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === "user") setUser(readUserFromStorage());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
-  const [showChannelModal, setShowChannelModal] = useState(false);
-  const [connectedChannels, setConnectedChannels] = useState([]);
+  const displayName =
+    user?.username || user?.displayName || user?.name || user?.fullName || user?.email || "User";
 
+  const planName = user?.plan || user?.subscription || user?.tier || "Free Plan";
+
+  const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
+
+ 
   const [channelForm, setChannelForm] = useState({
     platform: "",
     streamKey: "",
@@ -58,12 +72,6 @@ function Dashboard() {
   const streamRef = useRef(null);
   const modalRef = useRef(null);
 
-  // If user changes in localStorage (e.g., after login), reflect it
-
-const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
-
-const displayName =
-  user?.username || user?.displayName || user?.name || user?.fullName || user?.email || "User";
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
