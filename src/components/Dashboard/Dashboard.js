@@ -59,24 +59,11 @@ function Dashboard() {
   const modalRef = useRef(null);
 
   // If user changes in localStorage (e.g., after login), reflect it
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === "user") setUser(readUserFromStorage());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-    const displayName =
-      user?.username || user?.email || "User";
-    
-    const planName =
-      user?.plan || user?.subscription || user?.tier || "Free Plan";
-    
-    const avatarInitials = useMemo(
-      () => getInitials(displayName),
-      [displayName]
-    );
+  const displayName =
+    user?.username ||
+    user?.user_metadata?.username ||
+    user?.email ||
+    "User";
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
