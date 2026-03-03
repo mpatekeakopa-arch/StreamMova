@@ -7,7 +7,6 @@ export default function Register() {
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -19,7 +18,6 @@ export default function Register() {
     setMsg("");
 
     const u = username.trim();
-    const dn = displayName.trim();
 
     if (!u) return setMsg("Username is required.");
     if (u.length < 3) return setMsg("Username must be at least 3 characters.");
@@ -35,30 +33,26 @@ export default function Register() {
       if (error) throw error;
 
       const userId = data?.user?.id;
+
+      // If email confirmation is enabled, user may be present but session not active yet.
       if (!userId) {
         setMsg("✅ Account created. Please check your email to confirm, then sign in.");
         setTimeout(() => navigate("/login"), 1200);
         return;
       }
 
-      // 2) Insert profile row (username/display_name)
+      // 2) Insert profile row (username only)
       const { error: profileErr } = await supabase.from("profiles").insert({
         id: userId,
-        username: u,
-        display_name: dn || null,
+        username: u
       });
 
-      if (profileErr) {
-        // If username is duplicate, Supabase will return a constraint error
-        throw profileErr;
-      }
+      if (profileErr) throw profileErr;
 
       setMsg("✅ Account created. Check your email for confirmation (if enabled). Then sign in.");
       setTimeout(() => navigate("/login"), 1200);
     } catch (err) {
       const message = err?.message || String(err);
-
-      // Friendly message for duplicate username
       if (message.toLowerCase().includes("duplicate") || message.toLowerCase().includes("unique")) {
         setMsg("❌ Username already taken. Please choose another.");
       } else {
@@ -83,16 +77,6 @@ export default function Register() {
             onChange={(e) => setUsername(e.target.value)}
             placeholder="e.g. mpate_keakopa"
             autoComplete="username"
-            disabled={loading}
-          />
-
-          <label>Display name (optional)</label>
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Your name"
-            autoComplete="name"
             disabled={loading}
           />
 
