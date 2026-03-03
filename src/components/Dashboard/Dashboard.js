@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./Dashboard.css";
-import { getInitials, readUserFromStorage } from "./utils/helpers";
+import { getInitials } from "./utils/helpers";
 import { availablePlatforms } from "./utils/constants";
 import StreamOutput from "./StreamOutput/StreamOutput";
 import QuickActions from "./QuickActions/QuickActions";
@@ -8,6 +8,7 @@ import ChannelModal from "./ChannelModal/ChannelModal";
 import Sidebar from "./Sidebar/Sidebar";
 import Header from "./Header/Header";
 import Analytics from "./Analytics/Analytics";
+import { useAuth } from "../../auth/AuthProvider";
 
 function Dashboard() {
   // Sidebar open/close (hamburger hides/shows)
@@ -19,29 +20,14 @@ function Dashboard() {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState("");
 
-    // Logged-in user UI (from localStorage by default)
-  const [user, setUser] = useState(() => readUserFromStorage());
-  
+  // ✅ Supabase session-driven identity (no localStorage)
+  const { displayName, authUser, profile } = useAuth();
+  const planName = "Free Plan";
+  const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
+
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [connectedChannels, setConnectedChannels] = useState([]);
 
-  // Keep user state in sync if localStorage changes (login/logout in another tab)
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === "user") setUser(readUserFromStorage());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  const displayName =
-    user?.username || user?.displayName || user?.name || user?.fullName || user?.email || "User";
-
-  const planName = user?.plan || user?.subscription || user?.tier || "Free Plan";
-
-  const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
-
- 
   const [channelForm, setChannelForm] = useState({
     platform: "",
     streamKey: "",
@@ -74,7 +60,6 @@ function Dashboard() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const modalRef = useRef(null);
-
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -188,118 +173,108 @@ function Dashboard() {
     setConnectedChannels((prev) => prev.filter((channel) => channel.id !== channelId));
   };
 
-// ============ Camera/Stream Functions (Dashboard owns lifecycle) ============
-const openCamera = async () => {
-  try {
-    setError("");
+  // ============ Camera/Stream Functions (Dashboard owns lifecycle) ============
+  const openCamera = async () => {
+    try {
+      setError("");
 
-    // Reuse if already open and tracks are live
-    if (cameraStream && cameraStream.getTracks().some(t => t.readyState === "live")) {
-      return cameraStream;
+      // Reuse if already open and tracks are live
+      if (cameraStream && cameraStream.getTracks().some((t) => t.readyState === "live")) {
+        return cameraStream;
+      }
+
+      const tryGetStream = async (constraints) => {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      };
+
+      const preferred = {
+        video: {
+          facingMode: { ideal: "user" },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 24, max: 30 },
+        },
+        audio: true,
+      };
+
+      let stream = null;
+      try {
+        stream = await tryGetStream(preferred);
+      } catch (err) {
+        console.error("openCamera failed:", err);
+
+        const debug = `${err?.name || "Error"}: ${err?.message || String(err)}`;
+        const msg =
+          err?.name === "NotAllowedError"
+            ? "Permission denied. Please allow camera and microphone access."
+            : err?.name === "NotFoundError"
+            ? "No camera found on this device."
+            : err?.name === "NotReadableError"
+            ? "Camera is already in use by another app. Close other apps using the camera and try again."
+            : err?.name === "OverconstrainedError"
+            ? "Camera settings not supported on this phone. Try again."
+            : `Unable to access camera/microphone. (${debug})`;
+
+        setError(msg);
+        setIsCameraOn(false);
+        setIsStreaming(false);
+        setCameraStream(null);
+        streamRef.current = null;
+        return null;
+      }
+
+      setCameraStream(stream);
+      streamRef.current = stream;
+      setIsCameraOn(true);
+      setIsStreaming(false);
+
+      return stream;
+    } catch (err) {
+      console.error("openCamera failed:", err);
+
+      const msg =
+        err?.name === "NotAllowedError"
+          ? "Permission denied. Please allow camera and microphone access."
+          : err?.name === "NotFoundError"
+          ? "No camera found on this device."
+          : err?.name === "NotReadableError"
+          ? "Camera is already in use by another app. Close other apps using the camera and try again."
+          : err?.name === "OverconstrainedError"
+          ? "Camera settings not supported on this phone. Try again."
+          : "Unable to access camera or microphone. Please allow permissions.";
+
+      setError(msg);
+      setIsCameraOn(false);
+      setIsStreaming(false);
+      setCameraStream(null);
+      streamRef.current = null;
+      return null;
+    }
+  };
+
+  const closeCamera = () => {
+    if (mediaRecorderRef.current) {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
     }
 
-    // Helper: try constraints
-    const tryGetStream = async (constraints) => {
-      return await navigator.mediaDevices.getUserMedia(constraints);
-    };
+    const s = streamRef.current || cameraStream;
+    if (s) s.getTracks().forEach((t) => t.stop());
 
-    // Attempt 1: preferred (but not too aggressive)
-    const preferred = {
-      video: {
-        facingMode: { ideal: "user" },
-        width: { ideal: 640 },     // was 1280 (too high for some phones)
-        height: { ideal: 480 },    // was 720
-        frameRate: { ideal: 24, max: 30 }, // was max 60 (too aggressive)
-      },
-      audio: true,
-    };
+    streamRef.current = null;
+    setCameraStream(null);
 
-    let stream = null;
-    try {
-      stream = await tryGetStream(preferred);
-    } catch (err) {
-  console.error("openCamera failed:", err);
-
-  const debug = `${err?.name || "Error"}: ${err?.message || String(err)}`;
-  const msg =
-    err?.name === "NotAllowedError"
-      ? "Permission denied. Please allow camera and microphone access."
-      : err?.name === "NotFoundError"
-      ? "No camera found on this device."
-      : err?.name === "NotReadableError"
-      ? "Camera is already in use by another app. Close other apps using the camera and try again."
-      : err?.name === "OverconstrainedError"
-      ? "Camera settings not supported on this phone. Try again."
-      : `Unable to access camera/microphone. (${debug})`;
-
-  setError(msg);
-  setIsCameraOn(false);
-  setIsStreaming(false);
-  setCameraStream(null);
-  streamRef.current = null;
-  return null;
-}
-
-    // Keep both: state (truth) + ref (compat)
-    setCameraStream(stream);
-    streamRef.current = stream;
-
-    setIsCameraOn(true);
-
-    // Keep current UI behavior
-    setIsStreaming(false);
-
-    return stream;
-  } catch (err) {
-    console.error("openCamera failed:", err);
-
-    // Surface the real reason if possible
-    const msg =
-      err?.name === "NotAllowedError"
-        ? "Permission denied. Please allow camera and microphone access."
-        : err?.name === "NotFoundError"
-        ? "No camera found on this device."
-        : err?.name === "NotReadableError"
-        ? "Camera is already in use by another app. Close other apps using the camera and try again."
-        : err?.name === "OverconstrainedError"
-        ? "Camera settings not supported on this phone. Try again."
-        : "Unable to access camera or microphone. Please allow permissions.";
-
-    setError(msg);
     setIsCameraOn(false);
     setIsStreaming(false);
-    setCameraStream(null);
-    streamRef.current = null;
-    return null;
-  }
-};
+  };
 
-const closeCamera = () => {
-  // stop recording if active
-  if (mediaRecorderRef.current) {
-    try {
-      mediaRecorderRef.current.stop();
-    } catch {}
-    mediaRecorderRef.current = null;
-    setIsRecording(false);
-  }
-
-  const s = streamRef.current || cameraStream;
-  if (s) {
-    s.getTracks().forEach((t) => t.stop());
-  }
-
-  streamRef.current = null;
-  setCameraStream(null);
-
-  setIsCameraOn(false);
-  setIsStreaming(false);
-};
-
-const handleStreamToggle = () => {
-  if (!isCameraOn) openCamera();
-  else closeCamera();
-};
+  const handleStreamToggle = () => {
+    if (!isCameraOn) openCamera();
+    else closeCamera();
+  };
 
   // ============ Upload Functions ============
   const openUploadPicker = () => {
@@ -311,14 +286,12 @@ const handleStreamToggle = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Basic validation
     if (!file.type.startsWith("video/")) {
       setError("Please select a video file (mp4, webm, mov, etc.).");
       e.target.value = "";
       return;
     }
 
-    // revoke previous
     if (uploadedVideo?.url) URL.revokeObjectURL(uploadedVideo.url);
 
     const url = URL.createObjectURL(file);
@@ -331,7 +304,6 @@ const handleStreamToggle = () => {
     });
     setUploadTitle((prev) => prev || file.name.replace(/\.[^.]+$/, ""));
 
-    // Preview uploaded video in the same preview pane (stop camera if running)
     if (isCameraOn || isStreaming) closeCamera();
     const video = videoRef.current;
     if (video) {
@@ -373,12 +345,7 @@ const handleStreamToggle = () => {
     try {
       recordChunksRef.current = [];
 
-      // Try common mime types in order
-      const candidates = [
-        "video/webm;codecs=vp9,opus",
-        "video/webm;codecs=vp8,opus",
-        "video/webm",
-      ];
+      const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
       const mimeType = candidates.find((t) => window.MediaRecorder?.isTypeSupported?.(t));
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
@@ -390,17 +357,13 @@ const handleStreamToggle = () => {
         const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "video/webm" });
         recordChunksRef.current = [];
 
-        // revoke previous
         if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
 
         const url = URL.createObjectURL(blob);
-        const name = `streammova-recording-${new Date()
-          .toISOString()
-          .replace(/[:.]/g, "-")}.webm`;
+        const name = `streammova-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
 
         setRecordedVideo({ blob, url, name });
 
-        // Preview recording in the same video element (optional)
         const video = videoRef.current;
         if (video) {
           video.srcObject = null;
@@ -412,7 +375,7 @@ const handleStreamToggle = () => {
       };
 
       mediaRecorderRef.current = mr;
-      mr.start(1000); // collect chunks every ~1s
+      mr.start(1000);
       setIsRecording(true);
     } catch (e) {
       console.error(e);
@@ -456,7 +419,6 @@ const handleStreamToggle = () => {
         body: title ? `It's time to start: ${title}` : "It's time to start streaming!",
       });
     } else {
-      // fallback
       alert(title ? `It's time to start: ${title}` : "It's time to start streaming!");
     }
   };
@@ -470,7 +432,6 @@ const handleStreamToggle = () => {
       return;
     }
 
-    // Convert local datetime to epoch ms
     const startMs = new Date(startAtLocal).getTime();
     if (!Number.isFinite(startMs)) {
       setError("Invalid schedule date/time.");
@@ -483,7 +444,6 @@ const handleStreamToggle = () => {
       return;
     }
 
-    // Clear previous schedule
     if (scheduleTimeoutRef.current) {
       clearTimeout(scheduleTimeoutRef.current);
       scheduleTimeoutRef.current = null;
@@ -495,18 +455,12 @@ const handleStreamToggle = () => {
       startAtMs: startMs,
     });
 
-    // Set timeout to notify at the scheduled time
     scheduleTimeoutRef.current = setTimeout(async () => {
       await showScheduleNotification(title);
-      setScheduleStatus({
-        active: false,
-        message: "Schedule triggered.",
-        startAtMs: null,
-      });
+      setScheduleStatus({ active: false, message: "Schedule triggered.", startAtMs: null });
       scheduleTimeoutRef.current = null;
     }, startMs - now);
 
-    // Ask permission early (better UX)
     await requestNotificationPermission();
   };
 
@@ -521,11 +475,10 @@ const handleStreamToggle = () => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-     const s = streamRef.current || cameraStream;
-if (s) {
-  s.getTracks().forEach((t) => t.stop());
-}
-streamRef.current = null;
+      const s = streamRef.current || cameraStream;
+      if (s) s.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+
       if (uploadedVideo?.url) URL.revokeObjectURL(uploadedVideo.url);
       if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
       if (scheduleTimeoutRef.current) clearTimeout(scheduleTimeoutRef.current);
@@ -547,7 +500,6 @@ streamRef.current = null;
 
   return (
     <div className={`streammova-app ${isSidebarOpen ? "" : "sidebar-collapsed"}`}>
-      {/* Channel Modal Popup */}
       <ChannelModal
         showChannelModal={showChannelModal}
         channelForm={channelForm}
@@ -571,29 +523,27 @@ streamRef.current = null;
           displayName={displayName}
           planName={planName}
           avatarInitials={avatarInitials}
-          user={user}
+          user={{ ...authUser, profile }} // optional: keeps Header compatible if it expects `user`
         />
 
         <div className="dashboard-content">
-          {/* LEFT COLUMN: Stream output */}
-       <StreamOutput
-        isStreaming={isStreaming}
-        isCameraOn={isCameraOn}
-        error={error}
-        uploadedVideo={uploadedVideo}
-        recordedVideo={recordedVideo}
-        videoRef={videoRef}
-        streamRef={streamRef}
-        cameraStream={cameraStream}     // NEW
-        openCamera={openCamera}         // NEW
-        closeCamera={closeCamera}       // NEW
-        connectedChannels={connectedChannels}
-        handleStreamToggle={handleStreamToggle}
-        handleOpenChannelModal={handleOpenChannelModal}
-        handleRemoveChannel={handleRemoveChannel}
-      />
+          <StreamOutput
+            isStreaming={isStreaming}
+            isCameraOn={isCameraOn}
+            error={error}
+            uploadedVideo={uploadedVideo}
+            recordedVideo={recordedVideo}
+            videoRef={videoRef}
+            streamRef={streamRef}
+            cameraStream={cameraStream}
+            openCamera={openCamera}
+            closeCamera={closeCamera}
+            connectedChannels={connectedChannels}
+            handleStreamToggle={handleStreamToggle}
+            handleOpenChannelModal={handleOpenChannelModal}
+            handleRemoveChannel={handleRemoveChannel}
+          />
 
-          {/* MIDDLE CARD: Quick Actions */}
           <QuickActions
             uploadInputRef={uploadInputRef}
             uploadedVideo={uploadedVideo}
@@ -619,7 +569,6 @@ streamRef.current = null;
             cancelSchedule={cancelSchedule}
           />
 
-          {/* RIGHT COLUMN: Analytics */}
           <Analytics connectedChannels={connectedChannels} />
         </div>
       </div>
