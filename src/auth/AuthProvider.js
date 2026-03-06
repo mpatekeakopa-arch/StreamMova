@@ -1,4 +1,3 @@
-// src/auth/AuthProvider.js
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
@@ -13,81 +12,92 @@ export function AuthProvider({ children }) {
   const fetchProfile = async (userId) => {
     if (!userId) return null;
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, display_name")
-      .eq("id", userId)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, display_name")
+        .eq("id", userId)
+        .maybeSingle();
 
-    if (error) {
-      // If row doesn’t exist yet, keep null (don’t crash UI)
-      console.warn("fetchProfile error:", error.message);
+      if (error) {
+        console.warn("fetchProfile error:", error.message);
+        return null;
+      }
+
+      return data || null;
+    } catch (err) {
+      console.warn("fetchProfile unexpected error:", err?.message || err);
       return null;
     }
-
-    return data;
   };
 
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
-      setLoading(true);
-
-      const { data } = await supabase.auth.getSession();
-      const s = data?.session || null;
-
+    const syncAuthState = async (currentSession) => {
       if (!mounted) return;
 
-      setSession(s);
-      setAuthUser(s?.user || null);
+      setLoading(true);
 
-      if (s?.user?.id) {
-        const p = await fetchProfile(s.user.id);
+      try {
+        const s = currentSession || null;
+
+        setSession(s);
+        setAuthUser(s?.user || null);
+
+        if (s?.user?.id) {
+          const p = await fetchProfile(s.user.id);
+          if (!mounted) return;
+          setProfile(p);
+        } else {
+          setProfile(null);
+        }
+      } catch (err) {
+        console.error("Auth sync error:", err);
         if (!mounted) return;
-        setProfile(p);
-      } else {
         setProfile(null);
+      } finally {
+        if (mounted) setLoading(false);
       }
+    };
 
-      setLoading(false);
+    const init = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("getSession error:", error.message);
+          await syncAuthState(null);
+          return;
+        }
+
+        await syncAuthState(data?.session || null);
+      } catch (err) {
+        console.error("init auth error:", err);
+        if (mounted) setLoading(false);
+      }
     };
 
     init();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
-      if (!mounted) return;
-
-      setLoading(true);
-      setSession(s);
-      setAuthUser(s?.user || null);
-
-      if (s?.user?.id) {
-        const p = await fetchProfile(s.user.id);
-        if (!mounted) return;
-        setProfile(p);
-      } else {
-        setProfile(null);
-      }
-
-      setLoading(false);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, s) => {
+      syncAuthState(s);
     });
 
     return () => {
       mounted = false;
-      sub?.subscription?.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
   const displayName = useMemo(() => {
-    // preferred: profiles.display_name
     if (profile?.display_name) return profile.display_name;
 
-    // fallback: auth metadata (if ever set)
-    const metaName = authUser?.user_metadata?.display_name || authUser?.user_metadata?.name;
+    const metaName =
+      authUser?.user_metadata?.display_name || authUser?.user_metadata?.name;
     if (metaName) return metaName;
 
-    // fallback: email local part
     const email = authUser?.email || "";
     if (email.includes("@")) return email.split("@")[0];
 
