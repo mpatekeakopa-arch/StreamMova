@@ -61,6 +61,9 @@ function StreamOutput({
     return `${base.replace(/\/+$/, "")}/${app}/${stream}`;
   }, [srsRtcBaseUrl, srsApp, srsStream]);
 
+  // CHANGE: mirror only the local preview when camera is on
+  const shouldMirrorPreview = isCameraOn && !!cameraStream;
+
   // -----------------------------
   // Load SRS SDK (self-hosted)
   // -----------------------------
@@ -251,8 +254,6 @@ function StreamOutput({
           await pub.publish(rtcUrl);
         }
       } catch (e) {
-        // Provide a useful hint for the very common next blocker:
-        // HTTPS app cannot call HTTP signaling endpoints (mixed content).
         const msg = String(e?.message || e);
         const mixedHint =
           /mixed content|blocked|insecure|http:\/\//i.test(msg)
@@ -312,7 +313,16 @@ function StreamOutput({
       </div>
 
       <div className="stream-preview-container">
-        <video ref={videoRef} className="video-preview" playsInline muted autoPlay />
+        <video
+          ref={videoRef}
+          className="video-preview"
+          playsInline
+          muted
+          autoPlay
+          style={{
+            transform: shouldMirrorPreview ? "scaleX(-1)" : "none",
+          }}
+        />
 
         {!isCameraOn && !uploadedVideo?.url && !recordedVideo?.url && (
           <div className="stream-preview-placeholder">
@@ -331,7 +341,6 @@ function StreamOutput({
       )}
 
       <div className="stream-controls">
-        {/* Camera toggle */}
         <button
           className={`btn ${isStreaming ? "btn-danger" : "btn-primary"}`}
           onClick={handleStreamToggle}
@@ -341,7 +350,6 @@ function StreamOutput({
           {isStreaming ? "Stop Camera" : "Start Multistream"}
         </button>
 
-        {/* Publish toggle */}
         <button
           className={`btn ${isPublishing ? "btn-danger" : "btn-primary"}`}
           onClick={isPublishing ? stopPublish : startPublish}
@@ -363,7 +371,6 @@ function StreamOutput({
         </button>
       </div>
 
-      {/* Quick status row */}
       <div className="hint-text" style={{ marginTop: 10 }}>
         <div>
           <strong>Ingest:</strong> <span style={{ opacity: 0.9 }}>{rtcUrl}</span>
@@ -375,7 +382,6 @@ function StreamOutput({
         </div>
       </div>
 
-      {/* Connected Channels Display (unchanged) */}
       {connectedChannels.length > 0 && (
         <div className="connected-channels">
           <h4>Connected Channels ({connectedChannels.length})</h4>
@@ -414,7 +420,7 @@ function StreamOutput({
           ? `Live publishing to SRS. If streams list is empty, check UDP 8000 + SRS candidate IP + browser console.`
           : isStreaming
           ? `Camera is ON. Click "Go Live (SRS)" to push to SRS WebRTC ingest.`
-          : 'Camera preview will start when you click "Start Multistream". Make sure to allow camera and microphone permissions.'}
+          : `Camera preview will start when you click "Start Multistream". Make sure to allow camera and microphone permissions.`}
       </div>
     </div>
   );
