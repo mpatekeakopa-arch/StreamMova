@@ -10,8 +10,8 @@ import Header from "./Header/Header";
 import Analytics from "./Analytics/Analytics";
 import { useAuth } from "../../auth/AuthProvider";
 
-const BACKEND_URL = "http://84.8.132.222:5000";
-
+const BACKEND_URL =
+  process.env.REACT_APP_BACKEND_URL || "http://84.8.132.222:5000";
 
 const PLATFORM_DEFAULT_SERVER_URLS = {
   facebook: "rtmps://live-api-s.facebook.com:443/rtmp/",
@@ -22,7 +22,6 @@ const PLATFORM_DEFAULT_SERVER_URLS = {
 
 function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
   const [isStreaming, setIsStreaming] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [activeNav, setActiveNav] = useState("dashboard");
@@ -41,58 +40,10 @@ function Dashboard() {
     serverUrl: "",
     streamKey: "",
     title: "",
-    testStatus: "idle", // "idle" | "testing" | "connected" | "failed"
+    testStatus: "idle",
     testMessage: "",
   });
 
-
-  const startBackendRestream = async () => {
-  try {
-
-    if (connectedChannels.length === 0) {
-      setError("Connect at least one platform before streaming.");
-      return;
-    }
-
-    const outputs = connectedChannels.map((ch) => {
-
-      if (ch.platform === "facebook") {
-        return {
-          platform: "facebook",
-          serverUrl: "rtmps://live-api-s.facebook.com:443/rtmp/",
-          streamKey: ch.streamKey
-        };
-      }
-
-      return null;
-    }).filter(Boolean);
-
-    const body = {
-      channelId: `user_${authUser?.id || "test"}_${Date.now()}`,
-      inputUrl: "rtmp://srs:1935/live/test",
-      outputs
-    };
-
-    const res = await fetch(`${BACKEND_URL}/api/restream/multi/start`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-
-    const data = await res.json();
-
-    console.log("Backend response:", data);
-
-  } catch (err) {
-    console.error(err);
-    setError("Failed to start restream.");
-  }
-};
-  
-
-  // Upload / Record / Schedule state
   const uploadInputRef = useRef(null);
   const [uploadedVideo, setUploadedVideo] = useState(null);
   const [uploadTitle, setUploadTitle] = useState("");
@@ -106,6 +57,7 @@ function Dashboard() {
     title: "",
     startAtLocal: "",
   });
+
   const scheduleTimeoutRef = useRef(null);
   const [scheduleStatus, setScheduleStatus] = useState({
     active: false,
@@ -119,13 +71,10 @@ function Dashboard() {
   const activeRestreamIdRef = useRef(null);
   const isRestreamRequestInFlightRef = useRef(false);
 
-  const toggleSidebar = () => setIsSidebarOpen((s) => !s);
+  const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
 
-  const buildRestreamChannelId = () => {
-    const userPart = authUser?.id || "guest";
-    return `dashboard_${userPart}`;
-  };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const handleOpenChannelModal = () => {
     setShowChannelModal(true);
@@ -174,6 +123,7 @@ function Dashboard() {
     }
 
     const platform = availablePlatforms.find((p) => p.id === channelForm.platform);
+
     if (!platform) {
       setChannelForm((prev) => ({
         ...prev,
@@ -184,7 +134,7 @@ function Dashboard() {
     }
 
     const alreadyConnected = connectedChannels.some(
-      (c) => c.platform === channelForm.platform
+      (channel) => channel.platform === channelForm.platform
     );
 
     if (alreadyConnected) {
@@ -202,7 +152,7 @@ function Dashboard() {
       testMessage: "Validating channel details…",
     }));
 
-    await new Promise((r) => setTimeout(r, 500));
+    await sleep(500);
 
     const serverUrlOk =
       String(channelForm.serverUrl).trim().startsWith("rtmp://") ||
@@ -254,7 +204,53 @@ function Dashboard() {
     }, 500);
   };
 
-   });
+  const buildRestreamChannelId = () => {
+    const userPart = authUser?.id || "guest";
+    return `dashboard_${userPart}_${Date.now()}`;
+  };
+
+  const startBackendRestream = async () => {
+    if (isRestreamRequestInFlightRef.current) return false;
+
+    if (connectedChannels.length === 0) {
+      return true;
+    }
+
+    isRestreamRequestInFlightRef.current = true;
+
+    try {
+      setError("");
+
+      const outputs = connectedChannels
+        .map((channel) => ({
+          platform: channel.platform,
+          serverUrl: channel.serverUrl,
+          streamKey: channel.streamKey,
+        }))
+        .filter(
+          (channel) =>
+            channel.platform &&
+            String(channel.serverUrl || "").trim() &&
+            String(channel.streamKey || "").trim()
+        );
+
+      if (outputs.length === 0) {
+        throw new Error("No valid channel outputs were found.");
+      }
+
+      const channelId = buildRestreamChannelId();
+
+      const res = await fetch(`${BACKEND_URL}/api/restream/multi/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channelId,
+          inputUrl: "rtmp://srs:1935/live/test",
+          outputs,
+        }),
+      });
 
       const data = await res.json().catch(() => ({}));
 
@@ -264,14 +260,16 @@ function Dashboard() {
 
       activeRestreamIdRef.current = channelId;
       setConnectedChannels((prev) =>
-        prev.map((channel) => ({ ...channel, status: "streaming" }))
+        prev.map((channel) => ({
+          ...channel,
+          status: "streaming",
+        }))
       );
-      setIsStreaming(true);
+
       return true;
     } catch (err) {
       console.error("startBackendRestream error:", err);
       setError(err.message || "Failed to start stream on backend.");
-      setIsStreaming(false);
       return false;
     } finally {
       isRestreamRequestInFlightRef.current = false;
@@ -280,11 +278,15 @@ function Dashboard() {
 
   const stopBackendRestream = async () => {
     const channelId = activeRestreamIdRef.current;
+
     if (!channelId) {
-      setIsStreaming(false);
       setConnectedChannels((prev) =>
-        prev.map((channel) => ({ ...channel, status: "connected" }))
+        prev.map((channel) => ({
+          ...channel,
+          status: "connected",
+        }))
       );
+      setIsStreaming(false);
       return;
     }
 
@@ -300,10 +302,13 @@ function Dashboard() {
       console.error("stopBackendRestream error:", err);
     } finally {
       activeRestreamIdRef.current = null;
-      setIsStreaming(false);
       setConnectedChannels((prev) =>
-        prev.map((channel) => ({ ...channel, status: "connected" }))
+        prev.map((channel) => ({
+          ...channel,
+          status: "connected",
+        }))
       );
+      setIsStreaming(false);
     }
   };
 
@@ -312,12 +317,13 @@ function Dashboard() {
       setError("Stop the live stream before removing a channel.");
       return;
     }
+
     setConnectedChannels((prev) =>
       prev.filter((channel) => channel.id !== channelId)
     );
   };
 
-  // ============ Camera/Stream Functions (Dashboard owns lifecycle) ============
+  // ============ Camera / Stream ============
   const openCamera = async () => {
     try {
       setError("");
@@ -337,6 +343,7 @@ function Dashboard() {
       };
 
       let stream = null;
+
       try {
         stream = await navigator.mediaDevices.getUserMedia(preferred);
       } catch (err) {
@@ -365,7 +372,6 @@ function Dashboard() {
       setCameraStream(stream);
       streamRef.current = stream;
       setIsCameraOn(true);
-
       return stream;
     } catch (err) {
       console.error("openCamera failed:", err);
@@ -399,35 +405,43 @@ function Dashboard() {
       setIsRecording(false);
     }
 
-    const s = streamRef.current || cameraStream;
-    if (s) s.getTracks().forEach((t) => t.stop());
+    const stream = streamRef.current || cameraStream;
+    if (stream) stream.getTracks().forEach((track) => track.stop());
 
     streamRef.current = null;
     setCameraStream(null);
     setIsCameraOn(false);
   };
 
-const handleStreamToggle = async () => {
+  const handleStreamToggle = async () => {
+    setError("");
 
-  if (!isCameraOn) {
+    if (!isCameraOn) {
+      const stream = await openCamera();
+      if (!stream) return;
 
-    const stream = await openCamera();
-
-    if (stream) {
-      await startBackendRestream();
+      // Let the browser publish path come up before backend FFmpeg pulls from SRS.
       setIsStreaming(true);
+
+      if (connectedChannels.length > 0) {
+        await sleep(2000);
+        const ok = await startBackendRestream();
+
+        if (!ok) {
+          setIsStreaming(false);
+          closeCamera();
+        }
+      }
+
+      return;
     }
 
-  } else {
-
+    await stopBackendRestream();
     closeCamera();
     setIsStreaming(false);
+  };
 
-  }
-
-};
-
-  // ============ Upload Functions ============
+  // ============ Upload ============
   const openUploadPicker = () => {
     setError("");
     uploadInputRef.current?.click();
@@ -475,6 +489,7 @@ const handleStreamToggle = async () => {
       setError("Upload a video first.");
       return;
     }
+
     if (connectedChannels.length === 0) {
       setError("Connect at least one channel first.");
       return;
@@ -485,7 +500,7 @@ const handleStreamToggle = async () => {
     );
   };
 
-  // ============ Recording Functions ============
+  // ============ Recording ============
   const startRecording = () => {
     setError("");
 
@@ -500,22 +515,39 @@ const handleStreamToggle = async () => {
     try {
       recordChunksRef.current = [];
 
-      const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
-      const mimeType = candidates.find((t) => window.MediaRecorder?.isTypeSupported?.(t));
-      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const candidates = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ];
 
-      mr.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      const mimeType = candidates.find((type) =>
+        window.MediaRecorder?.isTypeSupported?.(type)
+      );
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordChunksRef.current.push(event.data);
+        }
       };
 
-      mr.onstop = () => {
-        const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "video/webm" });
+      recorder.onstop = () => {
+        const blob = new Blob(recordChunksRef.current, {
+          type: recorder.mimeType || "video/webm",
+        });
+
         recordChunksRef.current = [];
 
-        if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
+        if (recordedVideo?.url) {
+          URL.revokeObjectURL(recordedVideo.url);
+        }
 
         const url = URL.createObjectURL(blob);
-        const name = `streammova-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+        const name = `streammova-recording-${new Date()
+          .toISOString()
+          .replace(/[:.]/g, "-")}.webm`;
 
         setRecordedVideo({ blob, url, name });
 
@@ -529,8 +561,8 @@ const handleStreamToggle = async () => {
         }
       };
 
-      mediaRecorderRef.current = mr;
-      mr.start(1000);
+      mediaRecorderRef.current = recorder;
+      recorder.start(1000);
       setIsRecording(true);
     } catch (e) {
       console.error(e);
@@ -541,34 +573,39 @@ const handleStreamToggle = async () => {
 
   const stopRecording = () => {
     if (!mediaRecorderRef.current) return;
+
     try {
       mediaRecorderRef.current.stop();
     } catch {}
+
     mediaRecorderRef.current = null;
     setIsRecording(false);
   };
 
   const downloadRecording = () => {
     if (!recordedVideo?.url) return;
-    const a = document.createElement("a");
-    a.href = recordedVideo.url;
-    a.download = recordedVideo.name || "recording.webm";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+
+    const link = document.createElement("a");
+    link.href = recordedVideo.url;
+    link.download = recordedVideo.name || "recording.webm";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
-  // ============ Schedule Functions ============
+  // ============ Schedule ============
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) return false;
     if (Notification.permission === "granted") return true;
     if (Notification.permission === "denied") return false;
-    const res = await Notification.requestPermission();
-    return res === "granted";
+
+    const result = await Notification.requestPermission();
+    return result === "granted";
   };
 
   const showScheduleNotification = async (title) => {
     const ok = await requestNotificationPermission();
+
     if (ok) {
       new Notification("StreamMova Scheduled Stream", {
         body: title ? `It's time to start: ${title}` : "It's time to start streaming!",
@@ -612,7 +649,11 @@ const handleStreamToggle = async () => {
 
     scheduleTimeoutRef.current = setTimeout(async () => {
       await showScheduleNotification(title);
-      setScheduleStatus({ active: false, message: "Schedule triggered.", startAtMs: null });
+      setScheduleStatus({
+        active: false,
+        message: "Schedule triggered.",
+        startAtMs: null,
+      });
       scheduleTimeoutRef.current = null;
     }, startMs - now);
 
@@ -624,13 +665,19 @@ const handleStreamToggle = async () => {
       clearTimeout(scheduleTimeoutRef.current);
       scheduleTimeoutRef.current = null;
     }
-    setScheduleStatus({ active: false, message: "Schedule cancelled.", startAtMs: null });
+
+    setScheduleStatus({
+      active: false,
+      message: "Schedule cancelled.",
+      startAtMs: null,
+    });
   };
 
   useEffect(() => {
     return () => {
-      const s = streamRef.current || cameraStream;
-      if (s) s.getTracks().forEach((t) => t.stop());
+      const stream = streamRef.current || cameraStream;
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+
       streamRef.current = null;
 
       if (uploadedVideo?.url) URL.revokeObjectURL(uploadedVideo.url);
@@ -647,7 +694,10 @@ const handleStreamToggle = async () => {
       }
     };
 
-    if (showChannelModal) document.addEventListener("mousedown", handleClickOutside);
+    if (showChannelModal) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showChannelModal]);
 
