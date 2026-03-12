@@ -10,8 +10,8 @@ import Header from "./Header/Header";
 import Analytics from "./Analytics/Analytics";
 import { useAuth } from "../../auth/AuthProvider";
 
-const BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || "http://84.8.132.222:5000";
+const BACKEND_URL = "http://84.8.132.222:5000";
+
 
 const PLATFORM_DEFAULT_SERVER_URLS = {
   facebook: "rtmps://live-api-s.facebook.com:443/rtmp/",
@@ -44,6 +44,53 @@ function Dashboard() {
     testStatus: "idle", // "idle" | "testing" | "connected" | "failed"
     testMessage: "",
   });
+
+
+  const startBackendRestream = async () => {
+  try {
+
+    if (connectedChannels.length === 0) {
+      setError("Connect at least one platform before streaming.");
+      return;
+    }
+
+    const outputs = connectedChannels.map((ch) => {
+
+      if (ch.platform === "facebook") {
+        return {
+          platform: "facebook",
+          serverUrl: "rtmps://live-api-s.facebook.com:443/rtmp/",
+          streamKey: ch.streamKey
+        };
+      }
+
+      return null;
+    }).filter(Boolean);
+
+    const body = {
+      channelId: `user_${authUser?.id || "test"}_${Date.now()}`,
+      inputUrl: "rtmp://srs:1935/live/test",
+      outputs
+    };
+
+    const res = await fetch(`${BACKEND_URL}/api/restream/multi/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+
+    console.log("Backend response:", data);
+
+  } catch (err) {
+    console.error(err);
+    setError("Failed to start restream.");
+  }
+};
+  
 
   // Upload / Record / Schedule state
   const uploadInputRef = useRef(null);
@@ -391,27 +438,25 @@ function Dashboard() {
     setIsCameraOn(false);
   };
 
-  const handleStreamToggle = async () => {
-    setError("");
+const handleStreamToggle = async () => {
 
-    if (!isCameraOn) {
-      const stream = await openCamera();
-      if (!stream) return;
+  if (!isCameraOn) {
 
-      // give the browser/SRS publish path a moment to become available as live/test
-      if (connectedChannels.length > 0) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const ok = await startBackendRestream();
-        if (!ok) return;
-      } else {
-        setIsStreaming(false);
-      }
-      return;
+    const stream = await openCamera();
+
+    if (stream) {
+      await startBackendRestream();
+      setIsStreaming(true);
     }
 
-    await stopBackendRestream();
+  } else {
+
     closeCamera();
-  };
+    setIsStreaming(false);
+
+  }
+
+};
 
   // ============ Upload Functions ============
   const openUploadPicker = () => {
