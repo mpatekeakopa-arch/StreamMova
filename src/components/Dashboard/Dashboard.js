@@ -254,38 +254,7 @@ function Dashboard() {
     }, 500);
   };
 
-  const startBackendRestream = async () => {
-    if (isRestreamRequestInFlightRef.current) return true;
-
-    if (connectedChannels.length === 0) {
-      setIsStreaming(false);
-      return true;
-    }
-
-    isRestreamRequestInFlightRef.current = true;
-
-    try {
-      setError("");
-
-      const channelId = buildRestreamChannelId();
-
-      const outputs = connectedChannels.map((channel) => ({
-        platform: channel.platform,
-        serverUrl: channel.serverUrl,
-        streamKey: channel.streamKey,
-      }));
-
-      const res = await fetch(`${BACKEND_URL}/api/restream/multi/start`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          channelId,
-          inputUrl: "rtmp://srs:1935/live/test",
-          outputs,
-        }),
-      });
+   });
 
       const data = await res.json().catch(() => ({}));
 
