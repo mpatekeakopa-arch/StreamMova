@@ -10,8 +10,17 @@ import Header from "./Header/Header";
 import Analytics from "./Analytics/Analytics";
 import { useAuth } from "../../auth/AuthProvider";
 
+const BACKEND_URL =
+  process.env.REACT_APP_BACKEND_URL || "http://84.8.132.222:5000";
+
+const PLATFORM_DEFAULT_SERVER_URLS = {
+  facebook: "rtmps://live-api-s.facebook.com:443/rtmp/",
+  youtube: "rtmp://a.rtmp.youtube.com/live2/",
+  twitch: "rtmp://live.twitch.tv/app/",
+  tiktok: "",
+};
+
 function Dashboard() {
-  // Sidebar open/close (hamburger hides/shows)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [isStreaming, setIsStreaming] = useState(false);
@@ -20,7 +29,6 @@ function Dashboard() {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState("");
 
-  // ✅ Supabase session-driven identity (no localStorage)
   const { displayName, authUser, profile } = useAuth();
   const planName = "Free Plan";
   const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
@@ -30,6 +38,7 @@ function Dashboard() {
 
   const [channelForm, setChannelForm] = useState({
     platform: "",
+    serverUrl: "",
     streamKey: "",
     title: "",
     testStatus: "idle", // "idle" | "testing" | "connected" | "failed"
@@ -48,7 +57,7 @@ function Dashboard() {
 
   const [scheduleForm, setScheduleForm] = useState({
     title: "",
-    startAtLocal: "", // "YYYY-MM-DDTHH:mm"
+    startAtLocal: "",
   });
   const scheduleTimeoutRef = useRef(null);
   const [scheduleStatus, setScheduleStatus] = useState({
@@ -60,14 +69,22 @@ function Dashboard() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const modalRef = useRef(null);
+  const activeRestreamIdRef = useRef(null);
+  const isRestreamRequestInFlightRef = useRef(false);
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
+
+  const buildRestreamChannelId = () => {
+    const userPart = authUser?.id || "guest";
+    return `dashboard_${userPart}`;
+  };
 
   const handleOpenChannelModal = () => {
     setShowChannelModal(true);
     setChannelForm({
       platform: "",
+      serverUrl: "",
       streamKey: "",
       title: "",
       testStatus: "idle",
@@ -81,6 +98,7 @@ function Dashboard() {
     setChannelForm((prev) => ({
       ...prev,
       platform: platformId,
+      serverUrl: PLATFORM_DEFAULT_SERVER_URLS[platformId] || "",
       testStatus: "idle",
       testMessage: "",
     }));
@@ -91,24 +109,37 @@ function Dashboard() {
     setChannelForm((prev) => ({
       ...prev,
       [name]: value,
-      testStatus: name === "streamKey" ? "idle" : prev.testStatus,
-      testMessage: name === "streamKey" ? "" : prev.testMessage,
+      testStatus:
+        name === "streamKey" || name === "serverUrl" ? "idle" : prev.testStatus,
+      testMessage:
+        name === "streamKey" || name === "serverUrl" ? "" : prev.testMessage,
     }));
   };
 
   const handleTestConnection = async () => {
-    if (!channelForm.platform || !channelForm.streamKey) {
+    if (!channelForm.platform || !channelForm.serverUrl || !channelForm.streamKey) {
       setChannelForm((prev) => ({
         ...prev,
         testStatus: "failed",
-        testMessage: "Select a platform and enter a stream key/RTMP URL first.",
+        testMessage: "Select a platform, then enter server URL and stream key.",
       }));
       return;
     }
 
     const platform = availablePlatforms.find((p) => p.id === channelForm.platform);
+    if (!platform) {
+      setChannelForm((prev) => ({
+        ...prev,
+        testStatus: "failed",
+        testMessage: "Selected platform is not supported.",
+      }));
+      return;
+    }
 
-    const alreadyConnected = connectedChannels.some((c) => c.platform === channelForm.platform);
+    const alreadyConnected = connectedChannels.some(
+      (c) => c.platform === channelForm.platform
+    );
+
     if (alreadyConnected) {
       setChannelForm((prev) => ({
         ...prev,
@@ -121,17 +152,22 @@ function Dashboard() {
     setChannelForm((prev) => ({
       ...prev,
       testStatus: "testing",
-      testMessage: "Connecting…",
+      testMessage: "Validating channel details…",
     }));
 
-    await new Promise((r) => setTimeout(r, 900));
+    await new Promise((r) => setTimeout(r, 500));
 
-    const ok = String(channelForm.streamKey).trim().length >= 8;
-    if (!ok) {
+    const serverUrlOk =
+      String(channelForm.serverUrl).trim().startsWith("rtmp://") ||
+      String(channelForm.serverUrl).trim().startsWith("rtmps://");
+
+    const streamKeyOk = String(channelForm.streamKey).trim().length >= 8;
+
+    if (!serverUrlOk || !streamKeyOk) {
       setChannelForm((prev) => ({
         ...prev,
         testStatus: "failed",
-        testMessage: "Connection failed. Stream key/URL looks invalid.",
+        testMessage: "Server URL or stream key looks invalid.",
       }));
       return;
     }
@@ -143,8 +179,9 @@ function Dashboard() {
       icon: platform.icon,
       color: platform.color,
       logo: platform.logo,
-      streamKey: channelForm.streamKey,
-      title: channelForm.title || `Stream to ${platform.name}`,
+      serverUrl: String(channelForm.serverUrl).trim(),
+      streamKey: String(channelForm.streamKey).trim(),
+      title: channelForm.title?.trim() || `Stream to ${platform.name}`,
       status: "connected",
       addedAt: new Date().toISOString(),
     };
@@ -154,13 +191,14 @@ function Dashboard() {
     setChannelForm((prev) => ({
       ...prev,
       testStatus: "connected",
-      testMessage: "Connected successfully!",
+      testMessage: "Channel added successfully.",
     }));
 
     setTimeout(() => {
       setShowChannelModal(false);
       setChannelForm({
         platform: "",
+        serverUrl: "",
         streamKey: "",
         title: "",
         testStatus: "idle",
@@ -169,8 +207,98 @@ function Dashboard() {
     }, 500);
   };
 
-  const handleRemoveChannel = (channelId) => {
-    setConnectedChannels((prev) => prev.filter((channel) => channel.id !== channelId));
+  const startBackendRestream = async () => {
+    if (isRestreamRequestInFlightRef.current) return true;
+
+    if (connectedChannels.length === 0) {
+      setIsStreaming(false);
+      return true;
+    }
+
+    isRestreamRequestInFlightRef.current = true;
+
+    try {
+      setError("");
+
+      const channelId = buildRestreamChannelId();
+
+      const outputs = connectedChannels.map((channel) => ({
+        platform: channel.platform,
+        serverUrl: channel.serverUrl,
+        streamKey: channel.streamKey,
+      }));
+
+      const res = await fetch(`${BACKEND_URL}/api/restream/multi/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channelId,
+          inputUrl: "rtmp://srs:1935/live/test",
+          outputs,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to start multistream on backend.");
+      }
+
+      activeRestreamIdRef.current = channelId;
+      setConnectedChannels((prev) =>
+        prev.map((channel) => ({ ...channel, status: "streaming" }))
+      );
+      setIsStreaming(true);
+      return true;
+    } catch (err) {
+      console.error("startBackendRestream error:", err);
+      setError(err.message || "Failed to start stream on backend.");
+      setIsStreaming(false);
+      return false;
+    } finally {
+      isRestreamRequestInFlightRef.current = false;
+    }
+  };
+
+  const stopBackendRestream = async () => {
+    const channelId = activeRestreamIdRef.current;
+    if (!channelId) {
+      setIsStreaming(false);
+      setConnectedChannels((prev) =>
+        prev.map((channel) => ({ ...channel, status: "connected" }))
+      );
+      return;
+    }
+
+    try {
+      await fetch(`${BACKEND_URL}/api/restream/stop`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ channelId }),
+      });
+    } catch (err) {
+      console.error("stopBackendRestream error:", err);
+    } finally {
+      activeRestreamIdRef.current = null;
+      setIsStreaming(false);
+      setConnectedChannels((prev) =>
+        prev.map((channel) => ({ ...channel, status: "connected" }))
+      );
+    }
+  };
+
+  const handleRemoveChannel = async (channelId) => {
+    if (isStreaming) {
+      setError("Stop the live stream before removing a channel.");
+      return;
+    }
+    setConnectedChannels((prev) =>
+      prev.filter((channel) => channel.id !== channelId)
+    );
   };
 
   // ============ Camera/Stream Functions (Dashboard owns lifecycle) ============
@@ -178,14 +306,9 @@ function Dashboard() {
     try {
       setError("");
 
-      // Reuse if already open and tracks are live
       if (cameraStream && cameraStream.getTracks().some((t) => t.readyState === "live")) {
         return cameraStream;
       }
-
-      const tryGetStream = async (constraints) => {
-        return await navigator.mediaDevices.getUserMedia(constraints);
-      };
 
       const preferred = {
         video: {
@@ -199,7 +322,7 @@ function Dashboard() {
 
       let stream = null;
       try {
-        stream = await tryGetStream(preferred);
+        stream = await navigator.mediaDevices.getUserMedia(preferred);
       } catch (err) {
         console.error("openCamera failed:", err);
 
@@ -226,7 +349,6 @@ function Dashboard() {
       setCameraStream(stream);
       streamRef.current = stream;
       setIsCameraOn(true);
-      setIsStreaming(false);
 
       return stream;
     } catch (err) {
@@ -266,14 +388,29 @@ function Dashboard() {
 
     streamRef.current = null;
     setCameraStream(null);
-
     setIsCameraOn(false);
-    setIsStreaming(false);
   };
 
-  const handleStreamToggle = () => {
-    if (!isCameraOn) openCamera();
-    else closeCamera();
+  const handleStreamToggle = async () => {
+    setError("");
+
+    if (!isCameraOn) {
+      const stream = await openCamera();
+      if (!stream) return;
+
+      // give the browser/SRS publish path a moment to become available as live/test
+      if (connectedChannels.length > 0) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const ok = await startBackendRestream();
+        if (!ok) return;
+      } else {
+        setIsStreaming(false);
+      }
+      return;
+    }
+
+    await stopBackendRestream();
+    closeCamera();
   };
 
   // ============ Upload Functions ============
@@ -304,7 +441,11 @@ function Dashboard() {
     });
     setUploadTitle((prev) => prev || file.name.replace(/\.[^.]+$/, ""));
 
-    if (isCameraOn || isStreaming) closeCamera();
+    if (isCameraOn || isStreaming) {
+      stopBackendRestream();
+      closeCamera();
+    }
+
     const video = videoRef.current;
     if (video) {
       video.srcObject = null;
@@ -326,7 +467,7 @@ function Dashboard() {
     }
 
     alert(
-      `Ready to send "${uploadedVideo.name}" to ${connectedChannels.length} channel(s).\n\nNext step: connect this button to your backend (SRS/FFmpeg) to push to RTMP endpoints.`
+      `Uploaded-video restream is not wired to the backend yet.\n\nCurrent backend live route uses SRS input: rtmp://srs:1935/live/test`
     );
   };
 
@@ -472,7 +613,6 @@ function Dashboard() {
     setScheduleStatus({ active: false, message: "Schedule cancelled.", startAtMs: null });
   };
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       const s = streamRef.current || cameraStream;
@@ -486,7 +626,6 @@ function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Close modal when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (modalRef.current && !modalRef.current.contains(event.target)) {
@@ -523,7 +662,9 @@ function Dashboard() {
           displayName={displayName}
           planName={planName}
           avatarInitials={avatarInitials}
-          user={{ ...authUser, profile }} // optional: keeps Header compatible if it expects `user`
+          user={{ ...authUser, profile }}
+          hideSearch={true}
+          showSearch={false}
         />
 
         <div className="dashboard-content">
