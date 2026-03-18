@@ -25,7 +25,6 @@ function Header({ displayName, planName, avatarInitials, user }) {
       <div className="header-controls">
         <div className="user-menu">
           <div className="user-profile">
-            {/* Avatar */}
             <div className="user-avatar">
               {user?.photoURL ? (
                 <img
@@ -43,24 +42,19 @@ function Header({ displayName, planName, avatarInitials, user }) {
               )}
             </div>
 
-            {/* 🔥 Name + Plan */}
             <div>
-              <div style={{ fontWeight: "600" }}>
-                {displayName}
-              </div>
-
+              <div style={{ fontWeight: "600" }}>{displayName}</div>
               <div
                 style={{
                   fontSize: "13px",
                   color: "rgba(255, 255, 255, 0.6)",
                 }}
               >
-                 • {planName}
+                {planName}
               </div>
             </div>
           </div>
 
-          {/* 🔥 Logout */}
           <div
             onClick={handleLogout}
             style={{
