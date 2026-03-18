@@ -1,0 +1,77 @@
+.register-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+}
+
+.register-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 24px;
+  border-radius: 18px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.register-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.register-subtitle {
+  margin: 8px 0 18px;
+  opacity: 0.85;
+}
+
+.register-form label {
+  display: block;
+  margin: 12px 0 6px;
+  opacity: 0.9;
+}
+
+.register-form input {
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  outline: none;
+}
+
+.register-form button {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.register-msg {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 14px;
+}
+
+.register-footer {
+  margin-top: 16px;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.register-link {
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 700;
+}
