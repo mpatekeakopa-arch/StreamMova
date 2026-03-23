@@ -184,7 +184,7 @@ function QuickActions({
       <div className="side-actions-card">
         <div className="section-header">
           <h2>Quick Actions</h2>
-          <div className="update-text">Upload • Record • Schedule</div>
+          <div className="update-text">Upload • Record • Reminder</div>
         </div>
 
         <div className="qa-block">
@@ -213,7 +213,7 @@ function QuickActions({
           <button className="qa-button-full" onClick={() => setActiveModal("schedule")}>
             <div className="qa-button-content">
               <i className="fas fa-calendar-alt"></i>
-              <span>Schedule Session</span>
+              <span>Set a reminder</span>
             </div>
           </button>
         </div>
