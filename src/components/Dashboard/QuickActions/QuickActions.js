@@ -447,7 +447,7 @@ function QuickActions({
               <button className="modal-back" onClick={closeModal}>
                 <i className="fas fa-arrow-left"></i> Back
               </button>
-              <h3>Schedule Session</h3>
+              <h3>Set a reminder</h3>
               <button className="modal-close" onClick={closeModal}>
                 <i className="fas fa-times"></i>
               </button>
@@ -478,7 +478,7 @@ function QuickActions({
               <div className="qa-row">
                 <button className="btn btn-primary qa-btn" onClick={scheduleSession}>
                   <i className="fas fa-bell" style={{ marginRight: 8 }}></i>
-                  Schedule & notify
+                  Set & notify
                 </button>
 
                 {scheduleStatus.active && (
