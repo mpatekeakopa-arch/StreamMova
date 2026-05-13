@@ -1,0 +1,330 @@
+.header {
+  background: linear-gradient(
+    135deg,
+    rgba(26, 26, 46, 0.95) 0%,
+    rgba(22, 33, 62, 0.95) 100%
+  );
+
+  padding: 24px 30px;
+
+  width: calc(100% + 40px);
+  margin-left: -20px;
+  margin-right: -20px;
+  margin-bottom: 25px;
+
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  position: sticky;
+  top: 0;
+  z-index: 110; /* above content, below sidebar toggle if needed */
+
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 0;
+
+  /* Prevent internal content from causing overflow */
+  min-width: 0;
+
+  animation: fadeIn 0.5s ease-out;
+}
+
+.header-title {
+  min-width: 0;
+}
+
+.header-title h1 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffffff 0%, #a8b5ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+
+  /* mobile safety */
+  line-height: 1.15;
+}
+
+.header-title p {
+  margin: 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 400;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+
+  /* allow shrinking without overflow */
+  min-width: 0;
+}
+
+.search-box {
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px 18px;
+
+  /* Make it responsive: flex item that can shrink */
+  width: 320px;
+  max-width: 42vw;
+  min-width: 220px;
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+
+  /* overflow safety */
+  min-width: 0;
+}
+
+.search-box:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.search-box:focus-within {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #6a11cb;
+  box-shadow: 0 0 0 3px rgba(106, 17, 203, 0.2);
+}
+
+.search-box i {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 16px;
+}
+
+.search-box input {
+  width: 100%;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 15px;
+  padding-left: 30px;
+  outline: none;
+
+  /* overflow safety */
+  min-width: 0;
+}
+
+.search-box input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* =========================
+   USER MENU
+========================= */
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.notification-bell {
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex: 0 0 auto;
+}
+
+.notification-bell:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.notification-bell i {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.notification-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  border-radius: 50%;
+  border: 2px solid #16213e;
+  animation: pulse 2s infinite;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+  cursor: pointer;
+
+  min-width: 0;
+}
+
+.user-profile:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.user-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: white;
+  font-size: 16px;
+  box-shadow: 0 5px 15px rgba(106, 17, 203, 0.3);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-info {
+  min-width: 0;
+}
+
+.user-name {
+  color: white;
+  font-size: 15px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  font-weight: 500;
+}
+
+.user-role {
+  background: rgba(106, 17, 203, 0.15);
+  color: #a8b5ff;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-block;
+  border: 1px solid rgba(106, 17, 203, 0.3);
+}
+
+@media (max-width: 1024px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 20px;
+
+    width: calc(100% + 30px);
+    margin-left: -15px;
+    margin-right: -15px;
+  }
+
+  .header-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .search-box {
+    width: 100%;
+    max-width: 520px;
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 16px;
+
+    /* keep edge-to-edge effect but safe */
+    width: calc(100% + 24px);
+    margin-left: -12px;
+    margin-right: -12px;
+    margin-bottom: 18px;
+
+    /* give space so hamburger doesn’t overlap title */
+    padding-left: 64px;
+  }
+
+  .header-title h1 {
+    font-size: 22px;
+  }
+
+  .header-title p {
+    font-size: 14px;
+  }
+
+  .user-name {
+    max-width: 120px;
+  }
+}
+
+@media (max-width: 640px) {
+  .header-controls {
+    width: 100%;
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .search-box {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .user-menu {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* Optional: hide text details to save space on very small phones */
+  .user-info {
+    display: none;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+/* Keep your original rule intention */
+.main-content .header {
+  margin-bottom: 25px;
+}
