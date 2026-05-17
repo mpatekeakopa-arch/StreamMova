@@ -521,3 +521,37 @@
     transform: scale(1);
   }
 }
+.stream-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.facebook-destination-label {
+  flex: 1 1 100%;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(24, 119, 242, 0.16);
+  border: 1px solid rgba(24, 119, 242, 0.45);
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.facebook-destination-label strong {
+  color: #9cc4ff;
+}
+
+.stream-controls .btn {
+  min-width: 140px;
+  height: 54px;
+  white-space: normal;
+  flex: 1 1 140px;
+}
+
+.stream-controls .btn i {
+  margin-right: 8px;
+}
