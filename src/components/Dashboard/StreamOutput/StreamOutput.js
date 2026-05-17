@@ -341,6 +341,14 @@ function StreamOutput({
       )}
 
       <div className="stream-controls">
+
+
+      <div className="facebook-destination-label">
+        <strong>Facebook Page:</strong> Connected by backend
+        <br />
+        <strong>Destination:</strong> Preconfigured Facebook Page
+      </div>
+
         <button
           className={`btn ${isStreaming ? "btn-danger" : "btn-primary"}`}
           onClick={handleStreamToggle}
