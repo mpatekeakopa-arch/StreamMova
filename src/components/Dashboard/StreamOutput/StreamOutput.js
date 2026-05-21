@@ -1,19 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./StreamOutput.css";
 
-/**
- * StreamOutput responsibilities:
- * 1) Preview cameraStream (from Dashboard) when camera is on.
- * 2) Publish to SRS via WebRTC using self-hosted SRS SDK: /vendor/srs/srs.sdk.js
- * 3) Keep old UI behavior for Start/Stop camera (handleStreamToggle).
- *
- * IMPORTANT:
- * - Because UI is HTTPS, SRS signaling must also be HTTPS (or browser will block mixed content).
- * - Long term target: webrtc://srs.streammova.xyz/live/test behind Caddy/Nginx HTTPS proxy.
- */
-
 function StreamOutput({
-  // existing
   isStreaming,
   isCameraOn,
   error,
@@ -21,73 +9,65 @@ function StreamOutput({
   recordedVideo,
   videoRef,
   streamRef,
-  connectedChannels,
+  connectedChannels = [],
   handleStreamToggle,
   handleOpenChannelModal,
   handleRemoveChannel,
 
-  // NEW from Dashboard
   cameraStream,
   openCamera,
-  closeCamera,
 
-  // NEW Facebook props
-  facebookPages,
-  selectedFacebookPageId,
-  setSelectedFacebookPageId,
-  facebookConnectStatus,
-  handleFacebookOAuthResult,
+  facebookPages = [],
+  selectedFacebookPageId = "",
+  setSelectedFacebookPageId = () => {},
+  facebookConnectStatus = "",
+  handleFacebookOAuthResult = () => {},
 
-  // Optional override
-  srsRtcBaseUrl, // e.g. "webrtc://srs.streammova.xyz/live" OR "webrtc://84.8.132.222/live"
-  srsApp, // default "live"
-  srsStream, // default "test"
+  srsRtcBaseUrl,
+  srsApp,
+  srsStream,
 }) {
   const [isPublishing, setIsPublishing] = useState(false);
-  const [pubStatus, setPubStatus] = useState("idle"); // idle | connecting | publishing | stopped | failed
+  const [pubStatus, setPubStatus] = useState("idle");
   const [pubError, setPubError] = useState("");
 
   const publisherRef = useRef(null);
   const sdkReadyRef = useRef(false);
-  const publishingGuardRef = useRef(false); // prevents double-click racing
+  const publishingGuardRef = useRef(false);
+
+  const safeFacebookPages = Array.isArray(facebookPages) ? facebookPages : [];
 
   const rtcUrl = useMemo(() => {
     const base = srsRtcBaseUrl || "webrtc://srs.streammova.xyz/live";
     const app = srsApp || "live";
     const stream = srsStream || "test";
 
-    // If base already ends with /app, append /stream
     if (base.endsWith(`/${app}`)) return `${base}/${stream}`;
 
-    // If base looks like webrtc://host/app already, append /stream
-    // e.g. webrtc://host/live -> becomes webrtc://host/live/test
     const parts = base.replace(/^webrtc:\/\//, "").split("/");
     if (parts.length >= 2) return `${base.replace(/\/+$/, "")}/${stream}`;
 
-    // Otherwise, treat as webrtc://host and append /app/stream
     return `${base.replace(/\/+$/, "")}/${app}/${stream}`;
   }, [srsRtcBaseUrl, srsApp, srsStream]);
 
-  // CHANGE: mirror only the local preview when camera is on
   const shouldMirrorPreview = isCameraOn && !!cameraStream;
 
-  // -----------------------------
-  // Load SRS SDK (self-hosted)
-  // -----------------------------
   const loadSrsSdkOnce = async () => {
     if (sdkReadyRef.current) return true;
+
     if (window.SrsRtcPublisherAsync) {
       sdkReadyRef.current = true;
       return true;
     }
 
-    // Prevent multiple injections
     const existing = document.querySelector('script[data-srs-sdk="1"]');
+
     if (existing) {
       const ok = await new Promise((resolve) => {
         existing.addEventListener("load", () => resolve(true), { once: true });
         existing.addEventListener("error", () => resolve(false), { once: true });
       });
+
       sdkReadyRef.current = ok && !!window.SrsRtcPublisherAsync;
       return sdkReadyRef.current;
     }
@@ -107,52 +87,33 @@ function StreamOutput({
     return sdkReadyRef.current;
   };
 
-  // -----------------------------------------
-  // Preview: attach cameraStream to <video>
-  // -----------------------------------------
   useEffect(() => {
     const video = videoRef?.current;
     if (!video) return;
 
-    // Detach camera preview when camera off OR no stream
     if (!isCameraOn || !cameraStream) {
       if (video.srcObject) video.srcObject = null;
       return;
     }
 
-    // If uploaded/recorded preview is playing via video.src, clear it
-    if (video.src) {
-      try {
-        video.pause();
-      } catch {}
-      video.removeAttribute("src");
-      try {
-        video.load();
-      } catch {}
-    }
-    // fully reset the element
-      try {
-        video.pause();
-      } catch {}
-      video.removeAttribute("src");
-      video.srcObject = null;
-      try {
-        video.load();
-      } catch {}
+    try {
+      video.pause();
+    } catch {}
+
+    video.removeAttribute("src");
+    video.srcObject = null;
+
+    try {
+      video.load();
+    } catch {}
 
     video.srcObject = cameraStream;
-
     video.muted = true;
     video.playsInline = true;
 
-    (async () => {
-      try {
-        await video.play();
-      } catch (e) {
-        // autoplay might be blocked; not fatal
-        console.warn("Preview play blocked:", e);
-      }
-    })();
+    video.play().catch((e) => {
+      console.warn("Preview play blocked:", e);
+    });
 
     return () => {
       if (video && video.srcObject === cameraStream) {
@@ -161,16 +122,18 @@ function StreamOutput({
     };
   }, [isCameraOn, cameraStream, videoRef]);
 
-  // Mirror cameraStream into legacy streamRef for older recording logic
   useEffect(() => {
     if (!streamRef) return;
-    if (cameraStream && streamRef.current !== cameraStream) streamRef.current = cameraStream;
-    if (!cameraStream && streamRef.current) streamRef.current = null;
+
+    if (cameraStream && streamRef.current !== cameraStream) {
+      streamRef.current = cameraStream;
+    }
+
+    if (!cameraStream && streamRef.current) {
+      streamRef.current = null;
+    }
   }, [cameraStream, streamRef]);
 
-  // -----------------------------
-  // Stop publish helper
-  // -----------------------------
   const stopPublish = async () => {
     setPubError("");
     setPubStatus("stopped");
@@ -189,26 +152,22 @@ function StreamOutput({
     }
   };
 
-  // -----------------------------
-  // Start publish
-  // -----------------------------
   const startPublish = async () => {
     if (publishingGuardRef.current) return;
-    publishingGuardRef.current = true;
 
+    publishingGuardRef.current = true;
     setPubError("");
     setPubStatus("connecting");
     setIsPublishing(true);
 
     try {
-      // Ensure camera stream exists
-      let s = cameraStream || streamRef?.current;
-      if (!s) {
-        if (openCamera) {
-          s = await openCamera();
-        }
+      let stream = cameraStream || streamRef?.current;
+
+      if (!stream && openCamera) {
+        stream = await openCamera();
       }
-      if (!s) {
+
+      if (!stream) {
         setPubError('Camera stream not available. Click "Start Multistream" first.');
         setPubStatus("failed");
         setIsPublishing(false);
@@ -217,6 +176,7 @@ function StreamOutput({
       }
 
       const ok = await loadSrsSdkOnce();
+
       if (!ok) {
         setPubError('Failed to load SRS SDK. Verify "/vendor/srs/srs.sdk.js" is reachable.');
         setPubStatus("failed");
@@ -225,15 +185,16 @@ function StreamOutput({
         return;
       }
 
-      // Close any existing publisher first
       if (publisherRef.current) {
         try {
           await publisherRef.current.close?.();
         } catch {}
+
         publisherRef.current = null;
       }
 
       const Publisher = window.SrsRtcPublisherAsync;
+
       if (!Publisher) {
         setPubError("SRS SDK loaded but SrsRtcPublisherAsync is missing.");
         setPubStatus("failed");
@@ -244,8 +205,6 @@ function StreamOutput({
 
       const pub = new Publisher();
 
-      // Try to publish using existing MediaStream if SDK supports it.
-      // Different SDK builds differ; handle both gracefully.
       if (typeof pub.publish !== "function") {
         setPubError("SRS publisher object missing publish() method.");
         setPubStatus("failed");
@@ -256,7 +215,7 @@ function StreamOutput({
 
       try {
         if (pub.publish.length >= 2) {
-          await pub.publish(rtcUrl, s);
+          await pub.publish(rtcUrl, stream);
         } else {
           await pub.publish(rtcUrl);
         }
@@ -264,7 +223,7 @@ function StreamOutput({
         const msg = String(e?.message || e);
         const mixedHint =
           /mixed content|blocked|insecure|http:\/\//i.test(msg)
-            ? "\n\nLikely cause: your app is HTTPS, but SRS signaling is not HTTPS. Use webrtc://srs.streammova.xyz/... behind HTTPS reverse proxy."
+            ? "\n\nLikely cause: your app is HTTPS, but SRS signaling is not HTTPS."
             : "";
 
         throw new Error(msg + mixedHint);
@@ -284,11 +243,11 @@ function StreamOutput({
       try {
         if (publisherRef.current) await publisherRef.current.close?.();
       } catch {}
+
       publisherRef.current = null;
     }
   };
 
-  // If user stops camera, stop publishing automatically
   useEffect(() => {
     if (!isCameraOn && isPublishing) {
       stopPublish();
@@ -296,17 +255,22 @@ function StreamOutput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCameraOn]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       try {
         if (publisherRef.current) publisherRef.current.close?.();
       } catch {}
+
       publisherRef.current = null;
     };
   }, []);
 
-  const liveLabel = isPublishing ? "LIVE TO SRS" : isStreaming ? "CAMERA ON" : "READY";
+  const liveLabel = isPublishing
+    ? "LIVE TO SRS"
+    : isStreaming
+    ? "CAMERA ON"
+    : "READY";
+
   const isBusy = pubStatus === "connecting";
 
   return (
@@ -342,35 +306,37 @@ function StreamOutput({
 
       {(error || pubError) && (
         <div className="error-message">
-          <i className="fas fa-exclamation-triangle" style={{ marginRight: "8px" }}></i>
+          <i
+            className="fas fa-exclamation-triangle"
+            style={{ marginRight: "8px" }}
+          ></i>
           {error || pubError}
         </div>
       )}
 
       <div className="stream-controls">
-        {/* Facebook UI Section - Only ONE instance */}
         <div className="facebook-controls">
           <button
             className="btn btn-secondary"
             onClick={handleFacebookOAuthResult}
           >
             <i className="fab fa-facebook"></i>
-            {facebookPages.length > 0 ? "Reconnect Facebook" : "Connect Facebook"}
+            {safeFacebookPages.length > 0
+              ? "Reconnect Facebook"
+              : "Connect Facebook"}
           </button>
 
           {facebookConnectStatus && (
-            <div className="facebook-status">
-              {facebookConnectStatus}
-            </div>
+            <div className="facebook-status">{facebookConnectStatus}</div>
           )}
 
-          {facebookPages.length > 0 && (
+          {safeFacebookPages.length > 0 && (
             <select
               className="facebook-page-select"
               value={selectedFacebookPageId}
               onChange={(e) => setSelectedFacebookPageId(e.target.value)}
             >
-              {facebookPages.map((page) => (
+              {safeFacebookPages.map((page) => (
                 <option key={page.id} value={page.id}>
                   {page.name}
                 </option>
@@ -393,17 +359,18 @@ function StreamOutput({
           onClick={isPublishing ? stopPublish : startPublish}
           disabled={isBusy}
           title={rtcUrl}
-          style={{ marginLeft: 10 }}
         >
-          <i className={`fas fa-${isPublishing ? "stop" : "broadcast-tower"}`}></i>
-          {isBusy ? "Connecting…" : isPublishing ? "Stop Live (SRS)" : "Go Live (SRS)"}
+          <i
+            className={`fas fa-${isPublishing ? "stop" : "broadcast-tower"}`}
+          ></i>
+          {isBusy
+            ? "Connecting…"
+            : isPublishing
+            ? "Stop Live (SRS)"
+            : "Go Live (SRS)"}
         </button>
 
-        <button
-          className="btn btn-secondary"
-          onClick={handleOpenChannelModal}
-          style={{ marginLeft: 10 }}
-        >
+        <button className="btn btn-secondary" onClick={handleOpenChannelModal}>
           <i className="fas fa-plus"></i>
           Add channels
         </button>
@@ -411,7 +378,8 @@ function StreamOutput({
 
       <div className="hint-text" style={{ marginTop: 10 }}>
         <div>
-          <strong>Ingest:</strong> <span style={{ opacity: 0.9 }}>{rtcUrl}</span>
+          <strong>Ingest:</strong>{" "}
+          <span style={{ opacity: 0.9 }}>{rtcUrl}</span>
         </div>
         <div style={{ opacity: 0.9 }}>
           {isPublishing
@@ -423,19 +391,27 @@ function StreamOutput({
       {connectedChannels.length > 0 && (
         <div className="connected-channels">
           <h4>Connected Channels ({connectedChannels.length})</h4>
+
           <div className="channels-list">
             {connectedChannels.map((channel) => (
               <div key={channel.id} className="channel-item">
                 <div className="channel-info">
                   <span className="channel-platform-icon">
-                    <img src={channel.logo} alt={`${channel.name} logo`} className="channel-logo" />
+                    <img
+                      src={channel.logo}
+                      alt={`${channel.name} logo`}
+                      className="channel-logo"
+                    />
                   </span>
                   <span className="channel-name">{channel.name}</span>
                 </div>
 
                 <div className="channel-actions">
                   <span className="channel-status">
-                    <i className="fas fa-circle" style={{ color: "#38ef7d", fontSize: "10px" }}></i>
+                    <i
+                      className="fas fa-circle"
+                      style={{ color: "#38ef7d", fontSize: "10px" }}
+                    ></i>
                     Connected
                   </span>
 
