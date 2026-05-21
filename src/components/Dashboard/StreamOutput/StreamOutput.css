@@ -555,3 +555,24 @@
 .stream-controls .btn i {
   margin-right: 8px;
 }
+
+.facebook-controls {
+  width: 100%;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.facebook-status {
+  font-size: 13px;
+  color: #9cc4ff;
+}
+
+.facebook-page-select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(24, 119, 242, 0.4);
+  background: #111;
+  color: #fff;
+}

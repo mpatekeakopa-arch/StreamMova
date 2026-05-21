@@ -31,6 +31,13 @@ function StreamOutput({
   openCamera,
   closeCamera,
 
+  // NEW Facebook props
+  facebookPages,
+  selectedFacebookPageId,
+  setSelectedFacebookPageId,
+  facebookConnectStatus,
+  handleFacebookOAuthResult,
+
   // Optional override
   srsRtcBaseUrl, // e.g. "webrtc://srs.streammova.xyz/live" OR "webrtc://84.8.132.222/live"
   srsApp, // default "live"
@@ -341,13 +348,36 @@ function StreamOutput({
       )}
 
       <div className="stream-controls">
+        {/* Facebook UI Section - Only ONE instance */}
+        <div className="facebook-controls">
+          <button
+            className="btn btn-secondary"
+            onClick={handleFacebookOAuthResult}
+          >
+            <i className="fab fa-facebook"></i>
+            {facebookPages.length > 0 ? "Reconnect Facebook" : "Connect Facebook"}
+          </button>
 
+          {facebookConnectStatus && (
+            <div className="facebook-status">
+              {facebookConnectStatus}
+            </div>
+          )}
 
-      <div className="facebook-destination-label">
-        <strong>Facebook Page:</strong> Connected by backend
-        <br />
-        <strong>Destination:</strong> Preconfigured Facebook Page
-      </div>
+          {facebookPages.length > 0 && (
+            <select
+              className="facebook-page-select"
+              value={selectedFacebookPageId}
+              onChange={(e) => setSelectedFacebookPageId(e.target.value)}
+            >
+              {facebookPages.map((page) => (
+                <option key={page.id} value={page.id}>
+                  {page.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
         <button
           className={`btn ${isStreaming ? "btn-danger" : "btn-primary"}`}
