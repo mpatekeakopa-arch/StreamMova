@@ -21,7 +21,12 @@ function Dashboard() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState("");
+  
+  // Facebook Live states
   const [liveStatus, setLiveStatus] = useState("");
+  const [facebookPages, setFacebookPages] = useState([]);
+  const [selectedFacebookPageId, setSelectedFacebookPageId] = useState("");
+  const [facebookConnectStatus, setFacebookConnectStatus] = useState("");
 
   const { displayName, authUser, profile } = useAuth();
   const planName = "Free Plan";
@@ -64,6 +69,11 @@ function Dashboard() {
   const modalRef = useRef(null);
 
   const channelId = authUser?.id || "test";
+  
+  // Selected page helper
+  const selectedFacebookPage = facebookPages.find(
+    (page) => page.id === selectedFacebookPageId
+  );
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -174,6 +184,11 @@ function Dashboard() {
     );
   };
 
+  // Updated: Redirect to Facebook OAuth
+  const handleFacebookOAuthResult = () => {
+    window.location.href = `${API_BASE_URL}/api/oauth/facebook/start`;
+  };
+
   const openCamera = async () => {
     try {
       setError("");
@@ -262,6 +277,10 @@ function Dashboard() {
     setError("");
     setLiveStatus("Starting Facebook Live…");
 
+    if (!selectedFacebookPage?.id || !selectedFacebookPage?.access_token) {
+      throw new Error("Please connect and select a Facebook Page first.");
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/facebook/live/start`, {
       method: "POST",
       headers: {
@@ -271,6 +290,8 @@ function Dashboard() {
         channelId,
         title: "StreamMova Live",
         description: "Live from StreamMova",
+        pageId: selectedFacebookPage?.id,
+        pageAccessToken: selectedFacebookPage?.access_token,
       }),
     });
 
@@ -566,6 +587,34 @@ function Dashboard() {
     });
   };
 
+  // Facebook OAuth callback handler
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthPayload = params.get("facebook_oauth");
+
+    if (!oauthPayload) return;
+
+    try {
+      const decoded = JSON.parse(atob(oauthPayload));
+      const pages = decoded?.pages?.data || [];
+
+      if (!Array.isArray(pages) || pages.length === 0) {
+        setError("Facebook connected, but no Pages were found.");
+        return;
+      }
+
+      setFacebookPages(pages);
+      setSelectedFacebookPageId(pages[0].id);
+      setFacebookConnectStatus(`Facebook connected. ${pages.length} page(s) found.`);
+      setError("");
+
+      window.history.replaceState({}, document.title, "/dashboard");
+    } catch (err) {
+      console.error("Failed to read Facebook OAuth result:", err);
+      setError("Failed to load Facebook Pages. Please connect Facebook again.");
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       const s = streamRef.current || cameraStream;
@@ -638,6 +687,11 @@ function Dashboard() {
             handleStreamToggle={handleStreamToggle}
             handleOpenChannelModal={handleOpenChannelModal}
             handleRemoveChannel={handleRemoveChannel}
+            facebookPages={facebookPages}
+            selectedFacebookPageId={selectedFacebookPageId}
+            setSelectedFacebookPageId={setSelectedFacebookPageId}
+            facebookConnectStatus={facebookConnectStatus}
+            handleFacebookOAuthResult={handleFacebookOAuthResult}
           />
 
           <QuickActions
