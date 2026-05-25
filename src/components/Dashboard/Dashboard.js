@@ -15,15 +15,14 @@ const API_BASE_URL =
 
 function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [activeNav, setActiveNav] = useState("dashboard");
 
   const [isStreaming, setIsStreaming] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
-  const [activeNav, setActiveNav] = useState("dashboard");
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState("");
-  
-  // Facebook Live states
   const [liveStatus, setLiveStatus] = useState("");
+
   const [facebookPages, setFacebookPages] = useState([]);
   const [selectedFacebookPageId, setSelectedFacebookPageId] = useState("");
   const [facebookConnectStatus, setFacebookConnectStatus] = useState("");
@@ -34,7 +33,6 @@ function Dashboard() {
 
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [connectedChannels, setConnectedChannels] = useState([]);
-  const [isFacebookConnected, setIsFacebookConnected] = useState(false);
 
   const [channelForm, setChannelForm] = useState({
     platform: "",
@@ -70,13 +68,12 @@ function Dashboard() {
   const modalRef = useRef(null);
 
   const channelId = authUser?.id || "test";
-  
-  // Selected page helper
+
   const selectedFacebookPage = facebookPages.find(
     (page) => page.id === selectedFacebookPageId
   );
 
-  const toggleSidebar = () => setIsSidebarOpen((s) => !s);
+  const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
 
   const handleOpenChannelModal = () => {
@@ -103,6 +100,7 @@ function Dashboard() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+
     setChannelForm((prev) => ({
       ...prev,
       [name]: value,
@@ -125,8 +123,17 @@ function Dashboard() {
       (p) => p.id === channelForm.platform
     );
 
+    if (!platform) {
+      setChannelForm((prev) => ({
+        ...prev,
+        testStatus: "failed",
+        testMessage: "Invalid platform selected.",
+      }));
+      return;
+    }
+
     const alreadyConnected = connectedChannels.some(
-      (c) => c.platform === channelForm.platform
+      (channel) => channel.platform === channelForm.platform
     );
 
     if (alreadyConnected) {
@@ -144,7 +151,7 @@ function Dashboard() {
       testMessage: "Connecting…",
     }));
 
-    await new Promise((r) => setTimeout(r, 700));
+    await new Promise((resolve) => setTimeout(resolve, 700));
 
     const newChannel = {
       id: Date.now(),
@@ -185,7 +192,6 @@ function Dashboard() {
     );
   };
 
-  // Redirect to Facebook OAuth
   const handleFacebookOAuthResult = () => {
     window.location.href = `${API_BASE_URL}/api/oauth/facebook/start`;
   };
@@ -196,7 +202,7 @@ function Dashboard() {
 
       if (
         cameraStream &&
-        cameraStream.getTracks().some((t) => t.readyState === "live")
+        cameraStream.getTracks().some((track) => track.readyState === "live")
       ) {
         return cameraStream;
       }
@@ -218,9 +224,7 @@ function Dashboard() {
       } catch (err) {
         console.error("openCamera failed:", err);
 
-        const debug = `${err?.name || "Error"}: ${
-          err?.message || String(err)
-        }`;
+        const debug = `${err?.name || "Error"}: ${err?.message || String(err)}`;
 
         const msg =
           err?.name === "NotAllowedError"
@@ -230,7 +234,7 @@ function Dashboard() {
             : err?.name === "NotReadableError"
             ? "Camera is already in use by another app. Close other apps using the camera and try again."
             : err?.name === "OverconstrainedError"
-            ? "Camera settings not supported on this phone. Try again."
+            ? "Camera settings not supported on this device. Try again."
             : `Unable to access camera/microphone. (${debug})`;
 
         setError(msg);
@@ -262,12 +266,16 @@ function Dashboard() {
       try {
         mediaRecorderRef.current.stop();
       } catch {}
+
       mediaRecorderRef.current = null;
       setIsRecording(false);
     }
 
-    const s = streamRef.current || cameraStream;
-    if (s) s.getTracks().forEach((t) => t.stop());
+    const stream = streamRef.current || cameraStream;
+
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
 
     streamRef.current = null;
     setCameraStream(null);
@@ -291,8 +299,8 @@ function Dashboard() {
         channelId,
         title: "StreamMova Live",
         description: "Live from StreamMova",
-        pageId: selectedFacebookPage?.id,
-        pageAccessToken: selectedFacebookPage?.access_token,
+        pageId: selectedFacebookPage.id,
+        pageAccessToken: selectedFacebookPage.access_token,
       }),
     });
 
@@ -304,6 +312,7 @@ function Dashboard() {
 
     setIsStreaming(true);
     setLiveStatus(`Facebook Live started. Video ID: ${data.liveVideoId}`);
+
     return data;
   };
 
@@ -315,9 +324,7 @@ function Dashboard() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        channelId,
-      }),
+      body: JSON.stringify({ channelId }),
     });
 
     const data = await response.json();
@@ -328,6 +335,7 @@ function Dashboard() {
 
     setIsStreaming(false);
     setLiveStatus("Facebook Live stopped.");
+
     return data;
   };
 
@@ -374,12 +382,14 @@ function Dashboard() {
     if (!file) return;
 
     if (!file.type.startsWith("video/")) {
-      setError("Please select a video file (mp4, webm, mov, etc.).");
+      setError("Please select a video file.");
       e.target.value = "";
       return;
     }
 
-    if (uploadedVideo?.url) URL.revokeObjectURL(uploadedVideo.url);
+    if (uploadedVideo?.url) {
+      URL.revokeObjectURL(uploadedVideo.url);
+    }
 
     const url = URL.createObjectURL(file);
 
@@ -393,9 +403,12 @@ function Dashboard() {
 
     setUploadTitle((prev) => prev || file.name.replace(/\.[^.]+$/, ""));
 
-    if (isCameraOn || isStreaming) closeCamera();
+    if (isCameraOn || isStreaming) {
+      closeCamera();
+    }
 
     const video = videoRef.current;
+
     if (video) {
       video.srcObject = null;
       video.src = url;
@@ -420,8 +433,9 @@ function Dashboard() {
     setError("");
 
     const stream = streamRef.current;
+
     if (!stream) {
-      setError('Turn on the camera first by clicking "Go Live".');
+      setError('Turn on the camera first by clicking "Start Multistream".');
       return;
     }
 
@@ -436,24 +450,31 @@ function Dashboard() {
         "video/webm",
       ];
 
-      const mimeType = candidates.find((t) =>
-        window.MediaRecorder?.isTypeSupported?.(t)
+      const mimeType = candidates.find((type) =>
+        window.MediaRecorder?.isTypeSupported?.(type)
       );
 
-      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const mediaRecorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
 
-      mr.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordChunksRef.current.push(event.data);
+        }
       };
 
-      mr.onstop = () => {
+      mediaRecorder.onstop = () => {
         const blob = new Blob(recordChunksRef.current, {
-          type: mr.mimeType || "video/webm",
+          type: mediaRecorder.mimeType || "video/webm",
         });
 
         recordChunksRef.current = [];
 
-        if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
+        if (recordedVideo?.url) {
+          URL.revokeObjectURL(recordedVideo.url);
+        }
 
         const url = URL.createObjectURL(blob);
         const name = `streammova-recording-${new Date()
@@ -463,6 +484,7 @@ function Dashboard() {
         setRecordedVideo({ blob, url, name });
 
         const video = videoRef.current;
+
         if (video) {
           video.srcObject = null;
           video.src = url;
@@ -472,11 +494,11 @@ function Dashboard() {
         }
       };
 
-      mediaRecorderRef.current = mr;
-      mr.start(1000);
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(1000);
       setIsRecording(true);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       setError("Recording is not supported in this browser.");
       setIsRecording(false);
     }
@@ -496,12 +518,12 @@ function Dashboard() {
   const downloadRecording = () => {
     if (!recordedVideo?.url) return;
 
-    const a = document.createElement("a");
-    a.href = recordedVideo.url;
-    a.download = recordedVideo.name || "recording.webm";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const link = document.createElement("a");
+    link.href = recordedVideo.url;
+    link.download = recordedVideo.name || "recording.webm";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const requestNotificationPermission = async () => {
@@ -509,14 +531,14 @@ function Dashboard() {
     if (Notification.permission === "granted") return true;
     if (Notification.permission === "denied") return false;
 
-    const res = await Notification.requestPermission();
-    return res === "granted";
+    const result = await Notification.requestPermission();
+    return result === "granted";
   };
 
   const showScheduleNotification = async (title) => {
-    const ok = await requestNotificationPermission();
+    const allowed = await requestNotificationPermission();
 
-    if (ok) {
+    if (allowed) {
       new Notification("StreamMova Scheduled Stream", {
         body: title
           ? `It's time to start: ${title}`
@@ -588,37 +610,6 @@ function Dashboard() {
     });
   };
 
-  // Auto-add Facebook to connected platforms when live streaming starts
-  useEffect(() => {
-    if (isStreaming && selectedFacebookPage && !isFacebookConnected) {
-      const facebookChannel = {
-        id: 'facebook-live',
-        platform: 'facebook',
-        name: 'Facebook',
-        icon: 'fab fa-facebook',
-        color: '#1877F2',
-        logo: '/images/facebook-logo.png',
-        status: 'live',
-        pageName: selectedFacebookPage.name,
-        addedAt: new Date().toISOString(),
-      };
-      
-      setConnectedChannels(prev => {
-        if (prev.some(channel => channel.id === 'facebook-live')) {
-          return prev;
-        }
-        return [...prev, facebookChannel];
-      });
-      setIsFacebookConnected(true);
-    }
-    
-    if (!isStreaming && isFacebookConnected) {
-      setConnectedChannels(prev => prev.filter(channel => channel.id !== 'facebook-live'));
-      setIsFacebookConnected(false);
-    }
-  }, [isStreaming, selectedFacebookPage, isFacebookConnected]);
-
-  // Facebook OAuth callback handler
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const oauthPayload = params.get("facebook_oauth");
@@ -646,21 +637,73 @@ function Dashboard() {
     }
   }, []);
 
-  // Cleanup on unmount
+  useEffect(() => {
+    if (isStreaming && selectedFacebookPage) {
+      setConnectedChannels((prev) => {
+        const exists = prev.some((channel) => channel.id === "facebook-live");
+
+        if (exists) {
+          return prev.map((channel) =>
+            channel.id === "facebook-live"
+              ? {
+                  ...channel,
+                  status: "live",
+                  pageName: selectedFacebookPage.name,
+                }
+              : channel
+          );
+        }
+
+        return [
+          ...prev,
+          {
+            id: "facebook-live",
+            platform: "facebook",
+            name: "Facebook",
+            icon: "fab fa-facebook",
+            color: "#1877F2",
+            logo:
+              "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg",
+            status: "live",
+            pageName: selectedFacebookPage.name,
+            addedAt: new Date().toISOString(),
+          },
+        ];
+      });
+    }
+
+    if (!isStreaming) {
+      setConnectedChannels((prev) =>
+        prev.filter((channel) => channel.id !== "facebook-live")
+      );
+    }
+  }, [isStreaming, selectedFacebookPage]);
+
   useEffect(() => {
     return () => {
-      const s = streamRef.current || cameraStream;
-      if (s) s.getTracks().forEach((t) => t.stop());
+      const stream = streamRef.current || cameraStream;
+
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
 
       streamRef.current = null;
 
-      if (uploadedVideo?.url) URL.revokeObjectURL(uploadedVideo.url);
-      if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
-      if (scheduleTimeoutRef.current) clearTimeout(scheduleTimeoutRef.current);
-    };
-  }, [cameraStream, uploadedVideo, recordedVideo]);
+      if (uploadedVideo?.url) {
+        URL.revokeObjectURL(uploadedVideo.url);
+      }
 
-  // Click outside handler for modal
+      if (recordedVideo?.url) {
+        URL.revokeObjectURL(recordedVideo.url);
+      }
+
+      if (scheduleTimeoutRef.current) {
+        clearTimeout(scheduleTimeoutRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (modalRef.current && !modalRef.current.contains(event.target)) {
