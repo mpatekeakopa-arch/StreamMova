@@ -34,6 +34,7 @@ function Dashboard() {
 
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [connectedChannels, setConnectedChannels] = useState([]);
+  const [isFacebookConnected, setIsFacebookConnected] = useState(false);
 
   const [channelForm, setChannelForm] = useState({
     platform: "",
@@ -184,7 +185,7 @@ function Dashboard() {
     );
   };
 
-  // Updated: Redirect to Facebook OAuth
+  // Redirect to Facebook OAuth
   const handleFacebookOAuthResult = () => {
     window.location.href = `${API_BASE_URL}/api/oauth/facebook/start`;
   };
@@ -587,6 +588,36 @@ function Dashboard() {
     });
   };
 
+  // Auto-add Facebook to connected platforms when live streaming starts
+  useEffect(() => {
+    if (isStreaming && selectedFacebookPage && !isFacebookConnected) {
+      const facebookChannel = {
+        id: 'facebook-live',
+        platform: 'facebook',
+        name: 'Facebook',
+        icon: 'fab fa-facebook',
+        color: '#1877F2',
+        logo: '/images/facebook-logo.png',
+        status: 'live',
+        pageName: selectedFacebookPage.name,
+        addedAt: new Date().toISOString(),
+      };
+      
+      setConnectedChannels(prev => {
+        if (prev.some(channel => channel.id === 'facebook-live')) {
+          return prev;
+        }
+        return [...prev, facebookChannel];
+      });
+      setIsFacebookConnected(true);
+    }
+    
+    if (!isStreaming && isFacebookConnected) {
+      setConnectedChannels(prev => prev.filter(channel => channel.id !== 'facebook-live'));
+      setIsFacebookConnected(false);
+    }
+  }, [isStreaming, selectedFacebookPage, isFacebookConnected]);
+
   // Facebook OAuth callback handler
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -615,6 +646,7 @@ function Dashboard() {
     }
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       const s = streamRef.current || cameraStream;
@@ -626,9 +658,9 @@ function Dashboard() {
       if (recordedVideo?.url) URL.revokeObjectURL(recordedVideo.url);
       if (scheduleTimeoutRef.current) clearTimeout(scheduleTimeoutRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cameraStream, uploadedVideo, recordedVideo]);
 
+  // Click outside handler for modal
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (modalRef.current && !modalRef.current.contains(event.target)) {
