@@ -315,33 +315,45 @@ function StreamOutput({
       )}
 
       <div className="stream-controls">
+        {/* UPDATED Facebook Controls with enhanced selector */}
         <div className="facebook-controls">
           <button
             className="btn btn-secondary"
             onClick={handleFacebookOAuthResult}
           >
             <i className="fab fa-facebook"></i>
-            {safeFacebookPages.length > 0
-              ? "Reconnect Facebook"
-              : "Connect Facebook"}
+            {safeFacebookPages.length > 0 ? "Reconnect Facebook" : "Connect Facebook"}
           </button>
 
           {facebookConnectStatus && (
-            <div className="facebook-status">{facebookConnectStatus}</div>
+            <div className="facebook-status">
+              ✅ {facebookConnectStatus}
+            </div>
           )}
 
           {safeFacebookPages.length > 0 && (
-            <select
-              className="facebook-page-select"
-              value={selectedFacebookPageId}
-              onChange={(e) => setSelectedFacebookPageId(e.target.value)}
-            >
-              {safeFacebookPages.map((page) => (
-                <option key={page.id} value={page.id}>
-                  {page.name}
-                </option>
-              ))}
-            </select>
+            <div className="facebook-page-picker">
+              <label htmlFor="facebook-page-select">
+                Select Facebook Page
+              </label>
+
+              <select
+                id="facebook-page-select"
+                className="facebook-page-select"
+                value={selectedFacebookPageId}
+                onChange={(e) => setSelectedFacebookPageId(e.target.value)}
+              >
+                {safeFacebookPages.map((page) => (
+                  <option key={page.id} value={page.id}>
+                    {page.name}
+                  </option>
+                ))}
+              </select>
+
+              <p className="facebook-page-note">
+                StreamMova will publish only to the selected Facebook Page.
+              </p>
+            </div>
           )}
         </div>
 
