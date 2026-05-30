@@ -961,7 +961,8 @@ useEffect(() => {
       clearTimeout(scheduleTimeoutRef.current);
     }
   };
-}, [cameraStream, uploadedVideo?.url, recordedVideo?.url]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   // Handle click outside modal
   useEffect(() => {
