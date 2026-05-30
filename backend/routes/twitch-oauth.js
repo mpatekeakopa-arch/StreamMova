@@ -4,7 +4,7 @@ import crypto from "crypto";
 
 const router = express.Router();
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5002";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://app.streammova.xyz";
 
 const SCOPES = [
   "user:read:email",
