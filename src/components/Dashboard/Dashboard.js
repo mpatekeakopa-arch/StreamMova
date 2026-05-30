@@ -939,30 +939,30 @@ function Dashboard() {
   }, [twitchLiveActive, facebookLiveActive]);
 
 
-useEffect(() => {
-  return () => {
-    const stream = streamRef.current || cameraStream;
+ useEffect(() => {
+    return () => {
+      const stream = streamRef.current || cameraStream;
 
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-    }
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
 
-    streamRef.current = null;
+      streamRef.current = null;
 
-    if (uploadedVideo?.url) {
-      URL.revokeObjectURL(uploadedVideo.url);
-    }
+      if (uploadedVideo?.url) {
+        URL.revokeObjectURL(uploadedVideo.url);
+      }
 
-    if (recordedVideo?.url) {
-      URL.revokeObjectURL(recordedVideo.url);
-    }
+      if (recordedVideo?.url) {
+        URL.revokeObjectURL(recordedVideo.url);
+      }
 
-    if (scheduleTimeoutRef.current) {
-      clearTimeout(scheduleTimeoutRef.current);
-    }
-  };
-}, [cameraStream, uploadedVideo, recordedVideo]);
-
+      if (scheduleTimeoutRef.current) {
+        clearTimeout(scheduleTimeoutRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
 
