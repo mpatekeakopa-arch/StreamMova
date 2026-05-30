@@ -939,7 +939,7 @@ function Dashboard() {
   }, [twitchLiveActive, facebookLiveActive]);
 
 
- useEffect(() => {
+useEffect(() => {
   return () => {
     const stream = streamRef.current || cameraStream;
 
@@ -961,7 +961,7 @@ function Dashboard() {
       clearTimeout(scheduleTimeoutRef.current);
     }
   };
-}, [cameraStream, recordedVideo?.url, uploadedVideo?.url]); // ← ADD THESE DEPENDENCIES
+}, [cameraStream, uploadedVideo?.url, recordedVideo?.url]);
 
   // Handle click outside modal
   useEffect(() => {
