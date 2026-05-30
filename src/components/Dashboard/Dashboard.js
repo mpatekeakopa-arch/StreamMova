@@ -86,65 +86,68 @@ function Dashboard() {
   const selectedFacebookPage = facebookPages.find(
     (page) => page.id === selectedFacebookPageId
   );
-useEffect(() => {
-  const saved = localStorage.getItem("streammova_connected_channels");
 
-  if (saved) {
-    try {
-      const data = JSON.parse(saved);
+  // Load saved channels from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("streammova_connected_channels");
 
-      setConnectedChannels(data.connectedChannels || []);
-      setTwitchConnected(data.twitchConnected || false);
-      setTwitchUsername(data.twitchUsername || "");
-      setTwitchStreamKey(data.twitchStreamKey || "");
-      setTwitchRtmpUrl(data.twitchRtmpUrl || "");
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
 
-      setYoutubeConnected(data.youtubeConnected || false);
-      setYoutubeChannelName(data.youtubeChannelName || "");
-      setYoutubeStreamKey(data.youtubeStreamKey || "");
-      setYoutubeRtmpUrl(data.youtubeRtmpUrl || "");
+        setConnectedChannels(data.connectedChannels || []);
+        setTwitchConnected(data.twitchConnected || false);
+        setTwitchUsername(data.twitchUsername || "");
+        setTwitchStreamKey(data.twitchStreamKey || "");
+        setTwitchRtmpUrl(data.twitchRtmpUrl || "");
 
-      setFacebookPages(data.facebookPages || []);
-      setSelectedFacebookPageId(data.selectedFacebookPageId || "");
-      setFacebookConnectStatus(data.facebookConnectStatus || "");
-    } catch (err) {
-      console.error("Failed to load saved channels:", err);
+        setYoutubeConnected(data.youtubeConnected || false);
+        setYoutubeChannelName(data.youtubeChannelName || "");
+        setYoutubeStreamKey(data.youtubeStreamKey || "");
+        setYoutubeRtmpUrl(data.youtubeRtmpUrl || "");
+
+        setFacebookPages(data.facebookPages || []);
+        setSelectedFacebookPageId(data.selectedFacebookPageId || "");
+        setFacebookConnectStatus(data.facebookConnectStatus || "");
+      } catch (err) {
+        console.error("Failed to load saved channels:", err);
+      }
     }
-  }
-}, []);
+  }, []);
 
-useEffect(() => {
-  localStorage.setItem(
-    "streammova_connected_channels",
-    JSON.stringify({
-      connectedChannels,
-      twitchConnected,
-      twitchUsername,
-      twitchStreamKey,
-      twitchRtmpUrl,
-      youtubeConnected,
-      youtubeChannelName,
-      youtubeStreamKey,
-      youtubeRtmpUrl,
-      facebookPages,
-      selectedFacebookPageId,
-      facebookConnectStatus,
-    })
-  );
-}, [
-  connectedChannels,
-  twitchConnected,
-  twitchUsername,
-  twitchStreamKey,
-  twitchRtmpUrl,
-  youtubeConnected,
-  youtubeChannelName,
-  youtubeStreamKey,
-  youtubeRtmpUrl,
-  facebookPages,
-  selectedFacebookPageId,
-  facebookConnectStatus,
-]);
+  // Save channels to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(
+      "streammova_connected_channels",
+      JSON.stringify({
+        connectedChannels,
+        twitchConnected,
+        twitchUsername,
+        twitchStreamKey,
+        twitchRtmpUrl,
+        youtubeConnected,
+        youtubeChannelName,
+        youtubeStreamKey,
+        youtubeRtmpUrl,
+        facebookPages,
+        selectedFacebookPageId,
+        facebookConnectStatus,
+      })
+    );
+  }, [
+    connectedChannels,
+    twitchConnected,
+    twitchUsername,
+    twitchStreamKey,
+    twitchRtmpUrl,
+    youtubeConnected,
+    youtubeChannelName,
+    youtubeStreamKey,
+    youtubeRtmpUrl,
+    facebookPages,
+    selectedFacebookPageId,
+    facebookConnectStatus,
+  ]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -788,6 +791,7 @@ useEffect(() => {
     });
   };
 
+  // Handle OAuth callbacks
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
@@ -911,6 +915,7 @@ useEffect(() => {
     }
   }, []);
 
+  // Update channel status based on live state
   useEffect(() => {
     setConnectedChannels((prev) =>
       prev.map((channel) => {
@@ -933,30 +938,32 @@ useEffect(() => {
     );
   }, [twitchLiveActive, facebookLiveActive]);
 
+  // Cleanup on component unmount - FIXED: removed dependencies
   useEffect(() => {
-  return () => {
-    const stream = streamRef.current || cameraStream;
+    return () => {
+      const stream = streamRef.current || cameraStream;
 
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-    }
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
 
-    streamRef.current = null;
+      streamRef.current = null;
 
-    if (uploadedVideo?.url) {
-      URL.revokeObjectURL(uploadedVideo.url);
-    }
+      if (uploadedVideo?.url) {
+        URL.revokeObjectURL(uploadedVideo.url);
+      }
 
-    if (recordedVideo?.url) {
-      URL.revokeObjectURL(recordedVideo.url);
-    }
+      if (recordedVideo?.url) {
+        URL.revokeObjectURL(recordedVideo.url);
+      }
 
-    if (scheduleTimeoutRef.current) {
-      clearTimeout(scheduleTimeoutRef.current);
-    }
-  };
-}, []); // Empty dependency array - only runs on unmount
+      if (scheduleTimeoutRef.current) {
+        clearTimeout(scheduleTimeoutRef.current);
+      }
+    };
+  }, []); // Empty dependency array - cleanup only runs on unmount
 
+  // Handle click outside modal
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (modalRef.current && !modalRef.current.contains(event.target)) {
