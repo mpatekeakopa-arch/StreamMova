@@ -961,8 +961,10 @@ useEffect(() => {
       clearTimeout(scheduleTimeoutRef.current);
     }
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+}, [cameraStream, uploadedVideo, recordedVideo]);
+
+
+
 
   // Handle click outside modal
   useEffect(() => {
