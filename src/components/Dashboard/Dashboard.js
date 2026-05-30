@@ -23,11 +23,25 @@ function Dashboard() {
   const [error, setError] = useState("");
   const [liveStatus, setLiveStatus] = useState("");
 
+  const [facebookLiveActive, setFacebookLiveActive] = useState(false);
+  const [twitchLiveActive, setTwitchLiveActive] = useState(false);
+
   const [facebookPages, setFacebookPages] = useState([]);
   const [selectedFacebookPageId, setSelectedFacebookPageId] = useState("");
   const [facebookConnectStatus, setFacebookConnectStatus] = useState("");
 
+  const [twitchConnected, setTwitchConnected] = useState(false);
+  const [twitchUsername, setTwitchUsername] = useState("");
+  const [twitchStreamKey, setTwitchStreamKey] = useState("");
+  const [twitchRtmpUrl, setTwitchRtmpUrl] = useState("");
+
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [youtubeChannelName, setYoutubeChannelName] = useState("");
+  const [youtubeStreamKey, setYoutubeStreamKey] = useState("");
+  const [youtubeRtmpUrl, setYoutubeRtmpUrl] = useState("");
+
   const { displayName, authUser, profile } = useAuth();
+
   const planName = "Free Plan";
   const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
 
@@ -72,6 +86,65 @@ function Dashboard() {
   const selectedFacebookPage = facebookPages.find(
     (page) => page.id === selectedFacebookPageId
   );
+useEffect(() => {
+  const saved = localStorage.getItem("streammova_connected_channels");
+
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+
+      setConnectedChannels(data.connectedChannels || []);
+      setTwitchConnected(data.twitchConnected || false);
+      setTwitchUsername(data.twitchUsername || "");
+      setTwitchStreamKey(data.twitchStreamKey || "");
+      setTwitchRtmpUrl(data.twitchRtmpUrl || "");
+
+      setYoutubeConnected(data.youtubeConnected || false);
+      setYoutubeChannelName(data.youtubeChannelName || "");
+      setYoutubeStreamKey(data.youtubeStreamKey || "");
+      setYoutubeRtmpUrl(data.youtubeRtmpUrl || "");
+
+      setFacebookPages(data.facebookPages || []);
+      setSelectedFacebookPageId(data.selectedFacebookPageId || "");
+      setFacebookConnectStatus(data.facebookConnectStatus || "");
+    } catch (err) {
+      console.error("Failed to load saved channels:", err);
+    }
+  }
+}, []);
+
+useEffect(() => {
+  localStorage.setItem(
+    "streammova_connected_channels",
+    JSON.stringify({
+      connectedChannels,
+      twitchConnected,
+      twitchUsername,
+      twitchStreamKey,
+      twitchRtmpUrl,
+      youtubeConnected,
+      youtubeChannelName,
+      youtubeStreamKey,
+      youtubeRtmpUrl,
+      facebookPages,
+      selectedFacebookPageId,
+      facebookConnectStatus,
+    })
+  );
+}, [
+  connectedChannels,
+  twitchConnected,
+  twitchUsername,
+  twitchStreamKey,
+  twitchRtmpUrl,
+  youtubeConnected,
+  youtubeChannelName,
+  youtubeStreamKey,
+  youtubeRtmpUrl,
+  facebookPages,
+  selectedFacebookPageId,
+  facebookConnectStatus,
+]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -107,6 +180,18 @@ function Dashboard() {
       testStatus: name === "streamKey" ? "idle" : prev.testStatus,
       testMessage: name === "streamKey" ? "" : prev.testMessage,
     }));
+  };
+
+  const handleFacebookOAuth = () => {
+    window.location.href = `${API_BASE_URL}/api/oauth/facebook/start`;
+  };
+
+  const handleTwitchOAuth = () => {
+    window.location.href = `${API_BASE_URL}/api/oauth/twitch/start`;
+  };
+
+  const handleYouTubeOAuth = () => {
+    window.location.href = `${API_BASE_URL}/api/oauth/youtube/start`;
   };
 
   const handleTestConnection = async () => {
@@ -160,7 +245,7 @@ function Dashboard() {
       icon: platform.icon,
       color: platform.color,
       logo: platform.logo,
-      streamKey: "",
+      streamKey: channelForm.streamKey,
       title: channelForm.title || `Stream to ${platform.name}`,
       status: "connected",
       addedAt: new Date().toISOString(),
@@ -187,13 +272,35 @@ function Dashboard() {
   };
 
   const handleRemoveChannel = (channelIdToRemove) => {
+    const removedChannel = connectedChannels.find(
+      (channel) => channel.id === channelIdToRemove
+    );
+
     setConnectedChannels((prev) =>
       prev.filter((channel) => channel.id !== channelIdToRemove)
     );
-  };
 
-  const handleFacebookOAuthResult = () => {
-    window.location.href = `${API_BASE_URL}/api/oauth/facebook/start`;
+    if (removedChannel?.platform === "twitch") {
+      setTwitchConnected(false);
+      setTwitchUsername("");
+      setTwitchStreamKey("");
+      setTwitchRtmpUrl("");
+      setTwitchLiveActive(false);
+    }
+
+    if (removedChannel?.platform === "youtube") {
+      setYoutubeConnected(false);
+      setYoutubeChannelName("");
+      setYoutubeStreamKey("");
+      setYoutubeRtmpUrl("");
+    }
+
+    if (removedChannel?.platform === "facebook") {
+      setFacebookPages([]);
+      setSelectedFacebookPageId("");
+      setFacebookConnectStatus("");
+      setFacebookLiveActive(false);
+    }
   };
 
   const openCamera = async () => {
@@ -207,7 +314,7 @@ function Dashboard() {
         return cameraStream;
       }
 
-      const preferred = {
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "user" },
           width: { ideal: 640 },
@@ -215,35 +322,7 @@ function Dashboard() {
           frameRate: { ideal: 24, max: 30 },
         },
         audio: true,
-      };
-
-      let stream = null;
-
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(preferred);
-      } catch (err) {
-        console.error("openCamera failed:", err);
-
-        const debug = `${err?.name || "Error"}: ${err?.message || String(err)}`;
-
-        const msg =
-          err?.name === "NotAllowedError"
-            ? "Permission denied. Please allow camera and microphone access."
-            : err?.name === "NotFoundError"
-            ? "No camera found on this device."
-            : err?.name === "NotReadableError"
-            ? "Camera is already in use by another app. Close other apps using the camera and try again."
-            : err?.name === "OverconstrainedError"
-            ? "Camera settings not supported on this device. Try again."
-            : `Unable to access camera/microphone. (${debug})`;
-
-        setError(msg);
-        setIsCameraOn(false);
-        setIsStreaming(false);
-        setCameraStream(null);
-        streamRef.current = null;
-        return null;
-      }
+      });
 
       setCameraStream(stream);
       streamRef.current = stream;
@@ -252,11 +331,22 @@ function Dashboard() {
       return stream;
     } catch (err) {
       console.error("openCamera failed:", err);
-      setError("Unable to access camera or microphone. Please allow permissions.");
+
+      const msg =
+        err?.name === "NotAllowedError"
+          ? "Permission denied. Please allow camera and microphone access."
+          : err?.name === "NotFoundError"
+          ? "No camera found on this device."
+          : err?.name === "NotReadableError"
+          ? "Camera is already in use by another app."
+          : "Unable to access camera or microphone.";
+
+      setError(msg);
       setIsCameraOn(false);
       setIsStreaming(false);
       setCameraStream(null);
       streamRef.current = null;
+
       return null;
     }
   };
@@ -283,12 +373,11 @@ function Dashboard() {
   };
 
   const startFacebookLive = async () => {
-    setError("");
-    setLiveStatus("Starting Facebook Live…");
-
     if (!selectedFacebookPage?.id || !selectedFacebookPage?.access_token) {
-      throw new Error("Please connect and select a Facebook Page first.");
+      return null;
     }
+
+    setLiveStatus("Starting Facebook Live…");
 
     const response = await fetch(`${API_BASE_URL}/api/facebook/live/start`, {
       method: "POST",
@@ -307,16 +396,18 @@ function Dashboard() {
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-      throw new Error(data.error || data.message || "Failed to start live stream");
+      throw new Error(data.error || data.message || "Failed to start Facebook Live");
     }
 
-    setIsStreaming(true);
+    setFacebookLiveActive(true);
     setLiveStatus(`Facebook Live started. Video ID: ${data.liveVideoId}`);
 
     return data;
   };
 
   const stopFacebookLive = async () => {
+    if (!facebookLiveActive) return null;
+
     setLiveStatus("Stopping Facebook Live…");
 
     const response = await fetch(`${API_BASE_URL}/api/facebook/live/stop`, {
@@ -330,26 +421,86 @@ function Dashboard() {
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-      throw new Error(data.error || data.message || "Failed to stop live stream");
+      throw new Error(data.error || data.message || "Failed to stop Facebook Live");
     }
 
-    setIsStreaming(false);
+    setFacebookLiveActive(false);
     setLiveStatus("Facebook Live stopped.");
+
+    return data;
+  };
+
+  const startTwitchLive = async () => {
+    if (!twitchConnected || !twitchStreamKey) return null;
+
+    setLiveStatus("Starting Twitch Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/twitch/live/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channelId,
+        streamKey: twitchStreamKey,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to start Twitch Live");
+    }
+
+    setTwitchLiveActive(true);
+    setLiveStatus(`Twitch Live started. Container: ${data.containerName}`);
+
+    return data;
+  };
+
+  const stopTwitchLive = async () => {
+    if (!twitchLiveActive) return null;
+
+    setLiveStatus("Stopping Twitch Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/twitch/live/stop`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ channelId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to stop Twitch Live");
+    }
+
+    setTwitchLiveActive(false);
+    setLiveStatus("Twitch Live stopped.");
 
     return data;
   };
 
   const closeCamera = async () => {
     try {
-      if (isStreaming) {
-        await stopFacebookLive();
+      const stopTasks = [];
+
+      if (facebookLiveActive) stopTasks.push(stopFacebookLive());
+      if (twitchLiveActive) stopTasks.push(stopTwitchLive());
+
+      if (stopTasks.length > 0) {
+        await Promise.allSettled(stopTasks);
       }
     } catch (err) {
       console.error("stop live failed:", err);
-      setError(err.message || "Failed to stop Facebook Live.");
+      setError(err.message || "Failed to stop live stream.");
     } finally {
       stopCameraOnly();
       setIsStreaming(false);
+      setFacebookLiveActive(false);
+      setTwitchLiveActive(false);
     }
   };
 
@@ -361,7 +512,34 @@ function Dashboard() {
         const stream = await openCamera();
         if (!stream) return;
 
-        await startFacebookLive();
+        const hasFacebook = Boolean(
+          selectedFacebookPage?.id && selectedFacebookPage?.access_token
+        );
+        const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
+        const hasYouTube = Boolean(youtubeConnected);
+
+        if (!hasFacebook && !hasTwitch && !hasYouTube) {
+          throw new Error("Connect at least one platform before going live.");
+        }
+
+        const startTasks = [];
+
+        if (hasFacebook) startTasks.push(startFacebookLive());
+        if (hasTwitch) startTasks.push(startTwitchLive());
+
+        const results = await Promise.allSettled(startTasks);
+        const failed = results.find((result) => result.status === "rejected");
+
+        if (failed) throw failed.reason;
+
+        setIsStreaming(true);
+
+        const livePlatforms = [];
+        if (hasFacebook) livePlatforms.push("Facebook");
+        if (hasTwitch) livePlatforms.push("Twitch");
+        if (hasYouTube) livePlatforms.push("YouTube");
+
+        setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
       } else {
         await closeCamera();
       }
@@ -612,72 +790,148 @@ function Dashboard() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const oauthPayload = params.get("facebook_oauth");
 
-    if (!oauthPayload) return;
+    const oauthError = params.get("error");
+    if (oauthError) {
+      setError(`OAuth error: ${oauthError}`);
+    }
 
-    try {
-      const decoded = JSON.parse(atob(oauthPayload));
-      const pages = decoded?.pages?.data || [];
+    const facebookPayload = params.get("facebook_oauth");
+    if (facebookPayload) {
+      try {
+        const decoded = JSON.parse(atob(facebookPayload));
+        const pages = decoded?.pages?.data || [];
 
-      if (!Array.isArray(pages) || pages.length === 0) {
-        setError("Facebook connected, but no Pages were found.");
-        return;
+        if (!Array.isArray(pages) || pages.length === 0) {
+          setError("Facebook connected, but no Pages were found.");
+          return;
+        }
+
+        setFacebookPages(pages);
+        setSelectedFacebookPageId(pages[0].id);
+        setFacebookConnectStatus(`Facebook connected. ${pages.length} page(s) found.`);
+
+        const facebookChannel = {
+          id: "facebook-connected",
+          platform: "facebook",
+          name: "Facebook",
+          icon: "fab fa-facebook",
+          color: "#1877F2",
+          logo: "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg",
+          status: "connected",
+          pageName: pages[0].name,
+          addedAt: new Date().toISOString(),
+        };
+
+        setConnectedChannels((prev) => {
+          const exists = prev.some((c) => c.id === facebookChannel.id);
+          return exists ? prev : [...prev, facebookChannel];
+        });
+
+        setError("");
+        window.history.replaceState({}, document.title, "/dashboard");
+      } catch (err) {
+        console.error("Failed to read Facebook OAuth result:", err);
+        setError("Failed to load Facebook Pages. Please connect Facebook again.");
       }
+    }
 
-      setFacebookPages(pages);
-      setSelectedFacebookPageId(pages[0].id);
-      setFacebookConnectStatus(`Facebook connected. ${pages.length} page(s) found.`);
-      setError("");
+    const twitchPayload = params.get("twitch_oauth");
+    if (twitchPayload) {
+      try {
+        const decoded = JSON.parse(atob(twitchPayload));
 
-      window.history.replaceState({}, document.title, "/dashboard");
-    } catch (err) {
-      console.error("Failed to read Facebook OAuth result:", err);
-      setError("Failed to load Facebook Pages. Please connect Facebook again.");
+        setTwitchConnected(true);
+        setTwitchUsername(decoded.user.display_name);
+        setTwitchStreamKey(decoded.stream_key);
+        setTwitchRtmpUrl(decoded.rtmp_url);
+
+        const twitchChannel = {
+          id: `twitch-${decoded.user.id}`,
+          platform: "twitch",
+          name: "Twitch",
+          displayName: decoded.user.display_name,
+          icon: "fab fa-twitch",
+          color: "#9146FF",
+          logo: "https://cdn4.iconfinder.com/data/icons/social-media-logos-8/512/Twitch-512.png",
+          status: "connected",
+          streamKey: decoded.stream_key,
+          rtmpUrl: decoded.rtmp_url,
+          addedAt: new Date().toISOString(),
+        };
+
+        setConnectedChannels((prev) => {
+          const exists = prev.some((c) => c.id === twitchChannel.id);
+          return exists ? prev : [...prev, twitchChannel];
+        });
+
+        setError("");
+        window.history.replaceState({}, document.title, "/dashboard");
+      } catch (err) {
+        console.error("Twitch OAuth error:", err);
+        setError("Failed to connect Twitch");
+      }
+    }
+
+    const youtubePayload = params.get("youtube_oauth");
+    if (youtubePayload) {
+      try {
+        const decoded = JSON.parse(atob(youtubePayload));
+
+        setYoutubeConnected(true);
+        setYoutubeChannelName(decoded.user.title);
+        setYoutubeStreamKey(decoded.stream_key);
+        setYoutubeRtmpUrl(decoded.rtmp_url);
+
+        const youtubeChannel = {
+          id: `youtube-${decoded.user.id}`,
+          platform: "youtube",
+          name: "YouTube",
+          displayName: decoded.user.title,
+          icon: "fab fa-youtube",
+          color: "#FF0000",
+          logo: "https://cdn2.iconfinder.com/data/icons/social-media-2285/512/1_Youtube_colored_svg-512.png",
+          status: "connected",
+          streamKey: decoded.stream_key,
+          rtmpUrl: decoded.rtmp_url,
+          addedAt: new Date().toISOString(),
+        };
+
+        setConnectedChannels((prev) => {
+          const exists = prev.some((c) => c.id === youtubeChannel.id);
+          return exists ? prev : [...prev, youtubeChannel];
+        });
+
+        setError("");
+        window.history.replaceState({}, document.title, "/dashboard");
+      } catch (err) {
+        console.error("YouTube OAuth error:", err);
+        setError("Failed to connect YouTube");
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (isStreaming && selectedFacebookPage) {
-      setConnectedChannels((prev) => {
-        const exists = prev.some((channel) => channel.id === "facebook-live");
-
-        if (exists) {
-          return prev.map((channel) =>
-            channel.id === "facebook-live"
-              ? {
-                  ...channel,
-                  status: "live",
-                  pageName: selectedFacebookPage.name,
-                }
-              : channel
-          );
+    setConnectedChannels((prev) =>
+      prev.map((channel) => {
+        if (channel.platform === "twitch") {
+          return {
+            ...channel,
+            status: twitchLiveActive ? "live" : "connected",
+          };
         }
 
-        return [
-          ...prev,
-          {
-            id: "facebook-live",
-            platform: "facebook",
-            name: "Facebook",
-            icon: "fab fa-facebook",
-            color: "#1877F2",
-            logo:
-              "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg",
-            status: "live",
-            pageName: selectedFacebookPage.name,
-            addedAt: new Date().toISOString(),
-          },
-        ];
-      });
-    }
+        if (channel.platform === "facebook") {
+          return {
+            ...channel,
+            status: facebookLiveActive ? "live" : "connected",
+          };
+        }
 
-    if (!isStreaming) {
-      setConnectedChannels((prev) =>
-        prev.filter((channel) => channel.id !== "facebook-live")
-      );
-    }
-  }, [isStreaming, selectedFacebookPage]);
+        return channel;
+      })
+    );
+  }, [twitchLiveActive, facebookLiveActive]);
 
   useEffect(() => {
     return () => {
@@ -701,7 +955,6 @@ function Dashboard() {
         clearTimeout(scheduleTimeoutRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -729,6 +982,14 @@ function Dashboard() {
         handlePlatformSelect={handlePlatformSelect}
         handleInputChange={handleInputChange}
         handleTestConnection={handleTestConnection}
+        handleFacebookOAuth={handleFacebookOAuth}
+        handleTwitchOAuth={handleTwitchOAuth}
+        handleYouTubeOAuth={handleYouTubeOAuth}
+        facebookConnectStatus={facebookConnectStatus}
+        twitchConnected={twitchConnected}
+        twitchUsername={twitchUsername}
+        youtubeConnected={youtubeConnected}
+        youtubeChannelName={youtubeChannelName}
       />
 
       <Sidebar
@@ -766,7 +1027,10 @@ function Dashboard() {
             selectedFacebookPageId={selectedFacebookPageId}
             setSelectedFacebookPageId={setSelectedFacebookPageId}
             facebookConnectStatus={facebookConnectStatus}
-            handleFacebookOAuthResult={handleFacebookOAuthResult}
+            twitchConnected={twitchConnected}
+            twitchUsername={twitchUsername}
+            youtubeConnected={youtubeConnected}
+            youtubeChannelName={youtubeChannelName}
           />
 
           <QuickActions

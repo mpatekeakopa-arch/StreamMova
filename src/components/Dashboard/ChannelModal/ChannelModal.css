@@ -57,8 +57,6 @@
   font-size: 20px;
   font-weight: 600;
   color: white;
-  display: flex;
-  align-items: center;
 }
 
 .modal-close {
@@ -92,118 +90,81 @@
 
 .form-group label {
   display: block;
-  margin-bottom: 10px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 14px;
-}
-
-.form-input {
-  width: 100%;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  color: white;
+  margin-bottom: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
   font-size: 15px;
-  transition: all 0.2s;
 }
 
-.form-input:focus {
-  outline: none;
-  border-color: #6a11cb;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.help-text {
-  display: block;
-  margin-top: 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.platform-grid {
+.oauth-channel-buttons {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 15px;
 }
 
-.platform-option {
+.oauth-channel-btn {
+  min-height: 120px;
+  padding: 18px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 15px;
+  font-weight: 600;
+
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 16px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 2px solid transparent;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-  color: rgba(255, 255, 255, 0.8);
+  gap: 12px;
 }
 
-.platform-option:hover {
-  background: rgba(255, 255, 255, 0.1);
+.oauth-channel-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
   transform: translateY(-2px);
+  border-color: rgba(106, 17, 203, 0.7);
+  box-shadow: 0 8px 22px rgba(106, 17, 203, 0.25);
 }
 
-.platform-option.selected {
-  border-color: #6a11cb;
-  background: rgba(106, 17, 203, 0.1);
+.oauth-channel-btn i {
+  font-size: 38px;
+  line-height: 1;
 }
 
-.platform-logo {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  margin-bottom: 8px;
+.oauth-channel-btn.facebook i {
+  color: #1877f2;
 }
 
-.platform-logo-inline {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
-  margin-right: 6px;
-  vertical-align: middle;
+.oauth-channel-btn.twitch i {
+  color: #9146ff;
 }
 
-.connection-test {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  margin-top: 25px;
+.oauth-channel-btn.youtube i {
+  color: #ff0000;
 }
 
-.test-btn {
-  padding: 10px 20px;
-  background: linear-gradient(135deg, #6a11cb, #2575fc);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.oauth-channel-btn.facebook:hover {
+  border-color: #1877f2;
+  box-shadow: 0 8px 22px rgba(24, 119, 242, 0.25);
 }
 
-.test-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.oauth-channel-btn.twitch:hover {
+  border-color: #9146ff;
+  box-shadow: 0 8px 22px rgba(145, 70, 255, 0.25);
 }
 
-.test-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(106, 17, 203, 0.4);
+.oauth-channel-btn.youtube:hover {
+  border-color: #ff0000;
+  box-shadow: 0 8px 22px rgba(255, 0, 0, 0.25);
 }
 
-.test-status {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.help-text {
+  display: block;
+  margin-top: 14px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .modal-footer {
@@ -211,73 +172,64 @@
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
 }
 
 .btn {
-  padding: 10px 24px;
+  padding: 12px 24px;
   border: none;
-  border-radius: 8px;
-  font-weight: 500;
+  border-radius: 10px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
   font-size: 15px;
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, #6a11cb, #2575fc);
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(106, 17, 203, 0.4);
+  justify-content: center;
+  gap: 10px;
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.1);
+  width: 100%;
+  background: rgba(255, 255, 255, 0.12);
   color: white;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-/* Responsive */
 @media (max-width: 768px) {
-  .platform-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
   .channel-modal {
     width: 95%;
     margin: 10px;
   }
+
+  .oauth-channel-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .oauth-channel-btn {
+    min-height: 85px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 18px 20px;
+  }
+
+  .oauth-channel-btn i {
+    font-size: 30px;
+  }
 }
 
 @media (max-width: 480px) {
-  .platform-grid {
-    grid-template-columns: 1fr;
-  }
-  
   .modal-body {
     padding: 20px;
   }
-  
+
   .modal-header {
     padding: 20px;
   }
-  
+
   .modal-footer {
     padding: 20px;
   }

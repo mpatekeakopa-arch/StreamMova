@@ -136,10 +136,13 @@
 }
 
 /* Buttons */
-.stream-controls {
+.streaming-controls {
   display: flex;
+  flex-direction: row;
   gap: 15px;
-  margin-top: 25px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 .btn {

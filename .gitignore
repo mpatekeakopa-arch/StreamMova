@@ -32,3 +32,6 @@ yarn-error.log*
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+# old local server dependencies
+public/server/node_modules/

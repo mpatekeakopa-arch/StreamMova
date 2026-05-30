@@ -21,7 +21,12 @@ function StreamOutput({
   selectedFacebookPageId = "",
   setSelectedFacebookPageId = () => {},
   facebookConnectStatus = "",
-  handleFacebookOAuthResult = () => {},
+
+  twitchConnected = false,
+  twitchUsername = "",
+
+  youtubeConnected = false,
+  youtubeChannelName = "",
 
   srsRtcBaseUrl,
   srsApp,
@@ -315,27 +320,14 @@ function StreamOutput({
       )}
 
       <div className="stream-controls">
-        {/* UPDATED Facebook Controls with enhanced selector */}
-        <div className="facebook-controls">
-          <button
-            className="btn btn-secondary"
-            onClick={handleFacebookOAuthResult}
-          >
-            <i className="fab fa-facebook"></i>
-            {safeFacebookPages.length > 0 ? "Reconnect Facebook" : "Connect Facebook"}
-          </button>
+        {safeFacebookPages.length > 0 && (
+          <div className="facebook-controls">
+            {facebookConnectStatus && (
+              <div className="facebook-status">✅ {facebookConnectStatus}</div>
+            )}
 
-          {facebookConnectStatus && (
-            <div className="facebook-status">
-              ✅ {facebookConnectStatus}
-            </div>
-          )}
-
-          {safeFacebookPages.length > 0 && (
             <div className="facebook-page-picker">
-              <label htmlFor="facebook-page-select">
-                Select Facebook Page
-              </label>
+              <label htmlFor="facebook-page-select">Select Facebook Page</label>
 
               <select
                 id="facebook-page-select"
@@ -354,38 +346,40 @@ function StreamOutput({
                 StreamMova will publish only to the selected Facebook Page.
               </p>
             </div>
-          )}
+          </div>
+        )}
+
+        <div className="streaming-controls">
+          <button
+            className={`btn ${isStreaming ? "btn-danger" : "btn-primary"}`}
+            onClick={handleStreamToggle}
+            disabled={isBusy}
+          >
+            <i className={`fas fa-${isStreaming ? "stop" : "play"}`}></i>
+            {isStreaming ? "Stop Camera" : "Start Multistream"}
+          </button>
+
+          <button
+            className={`btn ${isPublishing ? "btn-danger" : "btn-primary"}`}
+            onClick={isPublishing ? stopPublish : startPublish}
+            disabled={isBusy}
+            title={rtcUrl}
+          >
+            <i
+              className={`fas fa-${isPublishing ? "stop" : "broadcast-tower"}`}
+            ></i>
+            {isBusy
+              ? "Connecting…"
+              : isPublishing
+              ? "Stop Live (SRS)"
+              : "Go Live (SRS)"}
+          </button>
+
+          <button className="btn btn-secondary" onClick={handleOpenChannelModal}>
+            <i className="fas fa-plus"></i>
+            Add channels
+          </button>
         </div>
-
-        <button
-          className={`btn ${isStreaming ? "btn-danger" : "btn-primary"}`}
-          onClick={handleStreamToggle}
-          disabled={isBusy}
-        >
-          <i className={`fas fa-${isStreaming ? "stop" : "play"}`}></i>
-          {isStreaming ? "Stop Camera" : "Start Multistream"}
-        </button>
-
-        <button
-          className={`btn ${isPublishing ? "btn-danger" : "btn-primary"}`}
-          onClick={isPublishing ? stopPublish : startPublish}
-          disabled={isBusy}
-          title={rtcUrl}
-        >
-          <i
-            className={`fas fa-${isPublishing ? "stop" : "broadcast-tower"}`}
-          ></i>
-          {isBusy
-            ? "Connecting…"
-            : isPublishing
-            ? "Stop Live (SRS)"
-            : "Go Live (SRS)"}
-        </button>
-
-        <button className="btn btn-secondary" onClick={handleOpenChannelModal}>
-          <i className="fas fa-plus"></i>
-          Add channels
-        </button>
       </div>
 
       <div className="hint-text" style={{ marginTop: 10 }}>
@@ -409,13 +403,30 @@ function StreamOutput({
               <div key={channel.id} className="channel-item">
                 <div className="channel-info">
                   <span className="channel-platform-icon">
-                    <img
-                      src={channel.logo}
-                      alt={`${channel.name} logo`}
-                      className="channel-logo"
-                    />
+                    {channel.logo ? (
+                      <img
+                        src={channel.logo}
+                        alt={`${channel.name} logo`}
+                        className="channel-logo"
+                      />
+                    ) : (
+                      <i className={channel.icon}></i>
+                    )}
                   </span>
+
                   <span className="channel-name">{channel.name}</span>
+
+                  {channel.displayName && (
+                    <span className="channel-display-name">
+                      ({channel.displayName})
+                    </span>
+                  )}
+
+                  {channel.pageName && (
+                    <span className="channel-page-name">
+                      ({channel.pageName})
+                    </span>
+                  )}
                 </div>
 
                 <div className="channel-actions">
@@ -424,7 +435,7 @@ function StreamOutput({
                       className="fas fa-circle"
                       style={{ color: "#38ef7d", fontSize: "10px" }}
                     ></i>
-                    Connected
+                    {channel.status === "live" ? "LIVE" : "Connected"}
                   </span>
 
                   <button
