@@ -934,32 +934,28 @@ useEffect(() => {
   }, [twitchLiveActive, facebookLiveActive]);
 
   useEffect(() => {
-    return () => {
-      const stream = streamRef.current || cameraStream;
+  return () => {
+    const stream = streamRef.current || cameraStream;
 
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
 
-      streamRef.current = null;
+    streamRef.current = null;
 
-      if (uploadedVideo?.url) {
-        URL.revokeObjectURL(uploadedVideo.url);
-      }
+    if (uploadedVideo?.url) {
+      URL.revokeObjectURL(uploadedVideo.url);
+    }
 
-      if (recordedVideo?.url) {
-        URL.revokeObjectURL(recordedVideo.url);
-      }
+    if (recordedVideo?.url) {
+      URL.revokeObjectURL(recordedVideo.url);
+    }
 
-      if (scheduleTimeoutRef.current) {
-        clearTimeout(scheduleTimeoutRef.current);
-      }
-    };
-  }, [
-  cameraStream,
-  recordedVideo?.url,
-  uploadedVideo?.url
-]);
+    if (scheduleTimeoutRef.current) {
+      clearTimeout(scheduleTimeoutRef.current);
+    }
+  };
+}, []); // Empty dependency array - only runs on unmount
 
   useEffect(() => {
     const handleClickOutside = (event) => {
