@@ -81,6 +81,24 @@ function Dashboard() {
   const streamRef = useRef(null);
   const modalRef = useRef(null);
 
+  // Refs to hold the latest values for cleanup (avoids dependency issues)
+  const cameraStreamRef = useRef(cameraStream);
+  const uploadedVideoRef = useRef(uploadedVideo);
+  const recordedVideoRef = useRef(recordedVideo);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    cameraStreamRef.current = cameraStream;
+  }, [cameraStream]);
+
+  useEffect(() => {
+    uploadedVideoRef.current = uploadedVideo;
+  }, [uploadedVideo]);
+
+  useEffect(() => {
+    recordedVideoRef.current = recordedVideo;
+  }, [recordedVideo]);
+
   const channelId = authUser?.id || "test";
 
   const selectedFacebookPage = facebookPages.find(
@@ -938,33 +956,27 @@ function Dashboard() {
     );
   }, [twitchLiveActive, facebookLiveActive]);
 
-
- useEffect(() => {
+  // Cleanup on unmount – uses refs, no dependencies
+  useEffect(() => {
     return () => {
-      const stream = streamRef.current || cameraStream;
-
+      const stream = streamRef.current || cameraStreamRef.current;
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
-
       streamRef.current = null;
 
-      if (uploadedVideo?.url) {
-        URL.revokeObjectURL(uploadedVideo.url);
+      if (uploadedVideoRef.current?.url) {
+        URL.revokeObjectURL(uploadedVideoRef.current.url);
       }
-
-      if (recordedVideo?.url) {
-        URL.revokeObjectURL(recordedVideo.url);
+      if (recordedVideoRef.current?.url) {
+        URL.revokeObjectURL(recordedVideoRef.current.url);
       }
 
       if (scheduleTimeoutRef.current) {
         clearTimeout(scheduleTimeoutRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-
 
   // Handle click outside modal
   useEffect(() => {
