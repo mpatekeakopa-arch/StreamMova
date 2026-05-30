@@ -955,7 +955,11 @@ useEffect(() => {
         clearTimeout(scheduleTimeoutRef.current);
       }
     };
-  }, []);
+  }, [
+  cameraStream,
+  recordedVideo?.url,
+  uploadedVideo?.url
+]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
