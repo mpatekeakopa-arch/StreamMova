@@ -521,11 +521,13 @@ function Dashboard() {
     return data;
   };
 
-  const startYouTubeLive = async () => {
-    if (!youtubeConnected || !youtubeAccessToken) return null;
+// Update startYouTubeLive in Dashboard.js to handle token refresh
+const startYouTubeLive = async () => {
+  if (!youtubeConnected || !youtubeAccessToken) return null;
 
-    setLiveStatus("Starting YouTube Live…");
+  setLiveStatus("Starting YouTube Live…");
 
+  try {
     const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
       method: "POST",
       headers: {
@@ -542,6 +544,40 @@ function Dashboard() {
 
     const data = await response.json();
 
+    // Handle token refresh
+    if (response.status === 401 && data.newAccessToken) {
+      // Update the access token
+      setYoutubeAccessToken(data.newAccessToken);
+      
+      // Retry with new token
+      const retryResponse = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channelId,
+          accessToken: data.newAccessToken,
+          refreshToken: youtubeRefreshToken,
+          title: "StreamMova Live",
+          description: "Live from StreamMova",
+        }),
+      });
+
+      const retryData = await retryResponse.json();
+
+      if (!retryResponse.ok || !retryData.success) {
+        throw new Error(retryData.error || retryData.message || "Failed to start YouTube Live");
+      }
+
+      setYoutubeLiveActive(true);
+      setYoutubeStreamKey(retryData.streamKey || "");
+      setYoutubeRtmpUrl(retryData.rtmpUrl || "");
+      setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
+
+      return retryData;
+    }
+
     if (!response.ok || !data.success) {
       throw new Error(data.error || data.message || "Failed to start YouTube Live");
     }
@@ -552,7 +588,11 @@ function Dashboard() {
     setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
 
     return data;
-  };
+  } catch (error) {
+    console.error("startYouTubeLive error:", error);
+    throw error;
+  }
+};
 
   const stopYouTubeLive = async () => {
     if (!youtubeLiveActive) return null;
