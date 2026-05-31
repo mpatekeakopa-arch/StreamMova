@@ -4,7 +4,7 @@ import crypto from "crypto";
 
 const router = express.Router();
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5002";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://app.streammova.xyz";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
@@ -13,7 +13,7 @@ const SCOPES = [
 
 router.get("/api/oauth/youtube/start", (req, res) => {
   const state = crypto.randomBytes(32).toString("hex");
-  
+
   req.session.youtube_state = state;
 
   const params = new URLSearchParams({
@@ -35,6 +35,10 @@ router.get("/api/oauth/youtube/callback", async (req, res) => {
   if (error) {
     console.error("YouTube OAuth error:", error);
     return res.redirect(`${FRONTEND_URL}/dashboard?error=youtube_denied`);
+  }
+
+  if (!code) {
+    return res.redirect(`${FRONTEND_URL}/dashboard?error=youtube_missing_code`);
   }
 
   if (state !== req.session?.youtube_state) {
@@ -73,19 +77,23 @@ router.get("/api/oauth/youtube/callback", async (req, res) => {
       }
     );
 
-    const channel = channelResponse.data.items[0];
-    
+    const channel = channelResponse.data?.items?.[0];
+
+    if (!channel?.id) {
+      throw new Error("YouTube channel not found");
+    }
+
     const payload = {
       success: true,
       platform: "youtube",
       user: {
         id: channel.id,
-        title: channel.snippet.title,
-        description: channel.snippet.description,
-        thumbnail: channel.snippet.thumbnails.default.url,
+        title: channel.snippet?.title || "YouTube Channel",
+        description: channel.snippet?.description || "",
+        thumbnail: channel.snippet?.thumbnails?.default?.url || "",
       },
       access_token,
-      refresh_token,
+      refresh_token: refresh_token || "",
     };
 
     const encodedPayload = encodeURIComponent(
@@ -93,7 +101,7 @@ router.get("/api/oauth/youtube/callback", async (req, res) => {
     );
 
     delete req.session.youtube_state;
-    
+
     return res.redirect(`${FRONTEND_URL}/dashboard?youtube_oauth=${encodedPayload}`);
   } catch (error) {
     console.error("YouTube OAuth failed:", error.response?.data || error.message);
