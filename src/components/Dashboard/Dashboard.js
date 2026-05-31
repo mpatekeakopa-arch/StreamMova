@@ -535,51 +535,54 @@ function Dashboard() {
     }
   };
 
-  const handleStreamToggle = async () => {
-    try {
-      setError("");
+const handleStreamToggle = async () => {
+  try {
+    setError("");
 
-      if (!isStreaming) {
-        const stream = await openCamera();
-        if (!stream) return;
+    if (!isStreaming) {
+      const stream = await openCamera();
+      if (!stream) return;
 
-        const hasFacebook = Boolean(
-          selectedFacebookPage?.id && selectedFacebookPage?.access_token
-        );
-        const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
-        const hasYouTube = Boolean(youtubeConnected);
+      const hasFacebook = Boolean(
+        selectedFacebookPage?.id && selectedFacebookPage?.access_token
+      );
+      const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
+      const hasYouTube = Boolean(youtubeConnected && youtubeAccessToken);
 
-        if (!hasFacebook && !hasTwitch && !hasYouTube) {
-          throw new Error("Connect at least one platform before going live.");
-        }
-
-        const startTasks = [];
-
-        if (hasFacebook) startTasks.push(startFacebookLive());
-        if (hasTwitch) startTasks.push(startTwitchLive());
-
-        const results = await Promise.allSettled(startTasks);
-        const failed = results.find((result) => result.status === "rejected");
-
-        if (failed) throw failed.reason;
-
-        setIsStreaming(true);
-
-        const livePlatforms = [];
-        if (hasFacebook) livePlatforms.push("Facebook");
-        if (hasTwitch) livePlatforms.push("Twitch");
-        if (hasYouTube) livePlatforms.push("YouTube");
-
-        setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
-      } else {
-        await closeCamera();
+      if (!hasFacebook && !hasTwitch && !hasYouTube) {
+        throw new Error("Connect at least one platform before going live.");
       }
-    } catch (err) {
-      console.error("stream toggle failed:", err);
-      setError(err.message || "Failed to start or stop stream.");
-      setIsStreaming(false);
+
+      const startTasks = [];
+
+      if (hasFacebook) startTasks.push(startFacebookLive());
+      if (hasTwitch) startTasks.push(startTwitchLive());
+      if (hasYouTube) startTasks.push(startYouTubeLive());
+
+      const results = await Promise.allSettled(startTasks);
+      const failed = results.find((result) => result.status === "rejected");
+
+      if (failed) {
+        throw failed.reason;
+      }
+
+      setIsStreaming(true);
+
+      const livePlatforms = [];
+      if (hasFacebook) livePlatforms.push("Facebook");
+      if (hasTwitch) livePlatforms.push("Twitch");
+      if (hasYouTube) livePlatforms.push("YouTube");
+
+      setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
+    } else {
+      await closeCamera();
     }
-  };
+  } catch (err) {
+    console.error("stream toggle failed:", err);
+    setError(err.message || "Failed to start or stop stream.");
+    setIsStreaming(false);
+  }
+};
 
   const openUploadPicker = () => {
     setError("");
