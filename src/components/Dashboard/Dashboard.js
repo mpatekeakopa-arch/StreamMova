@@ -25,6 +25,7 @@ function Dashboard() {
 
   const [facebookLiveActive, setFacebookLiveActive] = useState(false);
   const [twitchLiveActive, setTwitchLiveActive] = useState(false);
+  const [youtubeLiveActive, setYoutubeLiveActive] = useState(false);
 
   const [facebookPages, setFacebookPages] = useState([]);
   const [selectedFacebookPageId, setSelectedFacebookPageId] = useState("");
@@ -129,6 +130,7 @@ function Dashboard() {
 
         setYoutubeAccessToken(data.youtubeAccessToken || "");
         setYoutubeRefreshToken(data.youtubeRefreshToken || "");
+        setYoutubeLiveActive(data.youtubeLiveActive || false);
 
         setFacebookPages(data.facebookPages || []);
         setSelectedFacebookPageId(data.selectedFacebookPageId || "");
@@ -155,6 +157,7 @@ function Dashboard() {
         youtubeRtmpUrl,
         youtubeAccessToken,
         youtubeRefreshToken,
+        youtubeLiveActive,
         facebookPages,
         selectedFacebookPageId,
         facebookConnectStatus,
@@ -172,6 +175,7 @@ function Dashboard() {
     youtubeRtmpUrl,
     youtubeAccessToken,
     youtubeRefreshToken,
+    youtubeLiveActive,
     facebookPages,
     selectedFacebookPageId,
     facebookConnectStatus,
@@ -324,6 +328,9 @@ function Dashboard() {
       setYoutubeChannelName("");
       setYoutubeStreamKey("");
       setYoutubeRtmpUrl("");
+      setYoutubeAccessToken("");
+      setYoutubeRefreshToken("");
+      setYoutubeLiveActive(false);
     }
 
     if (removedChannel?.platform === "facebook") {
@@ -514,12 +521,71 @@ function Dashboard() {
     return data;
   };
 
+  const startYouTubeLive = async () => {
+    if (!youtubeConnected || !youtubeAccessToken) return null;
+
+    setLiveStatus("Starting YouTube Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channelId,
+        accessToken: youtubeAccessToken,
+        refreshToken: youtubeRefreshToken,
+        title: "StreamMova Live",
+        description: "Live from StreamMova",
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to start YouTube Live");
+    }
+
+    setYoutubeLiveActive(true);
+    setYoutubeStreamKey(data.streamKey || "");
+    setYoutubeRtmpUrl(data.rtmpUrl || "");
+    setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
+
+    return data;
+  };
+
+  const stopYouTubeLive = async () => {
+    if (!youtubeLiveActive) return null;
+
+    setLiveStatus("Stopping YouTube Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/youtube/live/stop`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ channelId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to stop YouTube Live");
+    }
+
+    setYoutubeLiveActive(false);
+    setLiveStatus("YouTube Live stopped.");
+
+    return data;
+  };
+
   const closeCamera = async () => {
     try {
       const stopTasks = [];
 
       if (facebookLiveActive) stopTasks.push(stopFacebookLive());
       if (twitchLiveActive) stopTasks.push(stopTwitchLive());
+      if (youtubeLiveActive) stopTasks.push(stopYouTubeLive());
 
       if (stopTasks.length > 0) {
         await Promise.allSettled(stopTasks);
@@ -532,57 +598,58 @@ function Dashboard() {
       setIsStreaming(false);
       setFacebookLiveActive(false);
       setTwitchLiveActive(false);
+      setYoutubeLiveActive(false);
     }
   };
 
-const handleStreamToggle = async () => {
-  try {
-    setError("");
+  const handleStreamToggle = async () => {
+    try {
+      setError("");
 
-    if (!isStreaming) {
-      const stream = await openCamera();
-      if (!stream) return;
+      if (!isStreaming) {
+        const stream = await openCamera();
+        if (!stream) return;
 
-      const hasFacebook = Boolean(
-        selectedFacebookPage?.id && selectedFacebookPage?.access_token
-      );
-      const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
-      const hasYouTube = Boolean(youtubeConnected && youtubeAccessToken);
+        const hasFacebook = Boolean(
+          selectedFacebookPage?.id && selectedFacebookPage?.access_token
+        );
+        const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
+        const hasYouTube = Boolean(youtubeConnected && youtubeAccessToken);
 
-      if (!hasFacebook && !hasTwitch && !hasYouTube) {
-        throw new Error("Connect at least one platform before going live.");
+        if (!hasFacebook && !hasTwitch && !hasYouTube) {
+          throw new Error("Connect at least one platform before going live.");
+        }
+
+        const startTasks = [];
+
+        if (hasFacebook) startTasks.push(startFacebookLive());
+        if (hasTwitch) startTasks.push(startTwitchLive());
+        if (hasYouTube) startTasks.push(startYouTubeLive());
+
+        const results = await Promise.allSettled(startTasks);
+        const failed = results.find((result) => result.status === "rejected");
+
+        if (failed) {
+          throw failed.reason;
+        }
+
+        setIsStreaming(true);
+
+        const livePlatforms = [];
+        if (hasFacebook) livePlatforms.push("Facebook");
+        if (hasTwitch) livePlatforms.push("Twitch");
+        if (hasYouTube) livePlatforms.push("YouTube");
+
+        setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
+      } else {
+        await closeCamera();
       }
-
-      const startTasks = [];
-
-      if (hasFacebook) startTasks.push(startFacebookLive());
-      if (hasTwitch) startTasks.push(startTwitchLive());
-      if (hasYouTube) startTasks.push(startYouTubeLive());
-
-      const results = await Promise.allSettled(startTasks);
-      const failed = results.find((result) => result.status === "rejected");
-
-      if (failed) {
-        throw failed.reason;
-      }
-
-      setIsStreaming(true);
-
-      const livePlatforms = [];
-      if (hasFacebook) livePlatforms.push("Facebook");
-      if (hasTwitch) livePlatforms.push("Twitch");
-      if (hasYouTube) livePlatforms.push("YouTube");
-
-      setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
-    } else {
-      await closeCamera();
+    } catch (err) {
+      console.error("stream toggle failed:", err);
+      setError(err.message || "Failed to start or stop stream.");
+      setIsStreaming(false);
     }
-  } catch (err) {
-    console.error("stream toggle failed:", err);
-    setError(err.message || "Failed to start or stop stream.");
-    setIsStreaming(false);
-  }
-};
+  };
 
   const openUploadPicker = () => {
     setError("");
@@ -966,10 +1033,17 @@ const handleStreamToggle = async () => {
           };
         }
 
+        if (channel.platform === "youtube") {
+          return {
+            ...channel,
+            status: youtubeLiveActive ? "live" : "connected",
+          };
+        }
+
         return channel;
       })
     );
-  }, [twitchLiveActive, facebookLiveActive]);
+  }, [twitchLiveActive, facebookLiveActive, youtubeLiveActive]);
 
   // Cleanup on unmount – uses refs, no dependencies
   useEffect(() => {
