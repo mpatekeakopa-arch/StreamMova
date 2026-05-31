@@ -40,6 +40,9 @@ function Dashboard() {
   const [youtubeStreamKey, setYoutubeStreamKey] = useState("");
   const [youtubeRtmpUrl, setYoutubeRtmpUrl] = useState("");
 
+  const [youtubeAccessToken, setYoutubeAccessToken] = useState("");
+  const [youtubeRefreshToken, setYoutubeRefreshToken] = useState("");
+
   const { displayName, authUser, profile } = useAuth();
 
   const planName = "Free Plan";
@@ -124,6 +127,9 @@ function Dashboard() {
         setYoutubeStreamKey(data.youtubeStreamKey || "");
         setYoutubeRtmpUrl(data.youtubeRtmpUrl || "");
 
+        setYoutubeAccessToken(data.youtubeAccessToken || "");
+        setYoutubeRefreshToken(data.youtubeRefreshToken || "");
+
         setFacebookPages(data.facebookPages || []);
         setSelectedFacebookPageId(data.selectedFacebookPageId || "");
         setFacebookConnectStatus(data.facebookConnectStatus || "");
@@ -147,6 +153,8 @@ function Dashboard() {
         youtubeChannelName,
         youtubeStreamKey,
         youtubeRtmpUrl,
+        youtubeAccessToken,
+        youtubeRefreshToken,
         facebookPages,
         selectedFacebookPageId,
         facebookConnectStatus,
@@ -162,6 +170,8 @@ function Dashboard() {
     youtubeChannelName,
     youtubeStreamKey,
     youtubeRtmpUrl,
+    youtubeAccessToken,
+    youtubeRefreshToken,
     facebookPages,
     selectedFacebookPageId,
     facebookConnectStatus,
@@ -902,8 +912,10 @@ function Dashboard() {
 
         setYoutubeConnected(true);
         setYoutubeChannelName(decoded.user.title);
-        setYoutubeStreamKey(decoded.stream_key);
-        setYoutubeRtmpUrl(decoded.rtmp_url);
+        setYoutubeStreamKey(decoded.stream_key || "");
+        setYoutubeRtmpUrl(decoded.rtmp_url || "");
+        setYoutubeAccessToken(decoded.access_token || "");
+        setYoutubeRefreshToken(decoded.refresh_token || "");
 
         const youtubeChannel = {
           id: `youtube-${decoded.user.id}`,
