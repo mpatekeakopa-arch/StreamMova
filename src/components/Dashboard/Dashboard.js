@@ -523,37 +523,14 @@ function Dashboard() {
     setIsCameraOn(false);
   };
 
-  // ========================
-  // UNIFIED STREAM START/STOP
-  // ========================
-
-  const startUnifiedStream = async () => {
-    setLiveStatus("Starting unified stream...");
-
-    const platforms = {};
-
-    // Build platforms object for the unified endpoint
-    if (selectedFacebookPage?.id && selectedFacebookPage?.access_token) {
-      platforms.facebook = {
-        pageId: selectedFacebookPage.id,
-        pageAccessToken: selectedFacebookPage.access_token,
-      };
+  const startFacebookLive = async () => {
+    if (!selectedFacebookPage?.id || !selectedFacebookPage?.access_token) {
+      return null;
     }
 
-    if (twitchConnected && twitchStreamKey) {
-      platforms.twitch = {
-        streamKey: twitchStreamKey,
-      };
-    }
+    setLiveStatus("Starting Facebook Live…");
 
-    if (youtubeConnected && youtubeAccessToken) {
-      platforms.youtube = {
-        accessToken: youtubeAccessToken,
-        refreshToken: youtubeRefreshToken,
-      };
-    }
-
-    const response = await fetch(`${API_BASE_URL}/api/stream/unified/start`, {
+    const response = await fetch(`${API_BASE_URL}/api/facebook/live/start`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -562,50 +539,29 @@ function Dashboard() {
         channelId,
         title: "StreamMova Live",
         description: "Live from StreamMova",
-        platforms,
+        pageId: selectedFacebookPage.id,
+        pageAccessToken: selectedFacebookPage.access_token,
       }),
     });
 
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to start unified stream");
+      throw new Error(data.error || data.message || "Failed to start Facebook Live");
     }
 
-    // Update state based on which platforms were started
-    if (data.platforms?.facebook) {
-      setFacebookLiveActive(true);
-    }
-    if (data.platforms?.twitch) {
-      setTwitchLiveActive(true);
-    }
-    if (data.platforms?.youtube) {
-      setYoutubeLiveActive(true);
-      // Update YouTube stream key if returned
-      if (data.platforms.youtube.streamName) {
-        setYoutubeStreamKey(data.platforms.youtube.streamName);
-      }
-      // Update access token if refreshed
-      if (data.platforms.youtube.accessToken !== youtubeAccessToken) {
-        setYoutubeAccessToken(data.platforms.youtube.accessToken);
-      }
-    }
-
-    const livePlatforms = Object.keys(data.platforms || {});
-    const platformNames = livePlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1));
-    
-    setLiveStatus(
-      `Live on ${platformNames.join(" and ")}` + 
-      (data.youtubeDelayed ? " (YouTube activating...)" : "")
-    );
+    setFacebookLiveActive(true);
+    setLiveStatus(`Facebook Live started. Video ID: ${data.liveVideoId}`);
 
     return data;
   };
 
-  const stopUnifiedStream = async () => {
-    setLiveStatus("Stopping unified stream...");
+  const stopFacebookLive = async () => {
+    if (!facebookLiveActive) return null;
 
-    const response = await fetch(`${API_BASE_URL}/api/stream/unified/stop`, {
+    setLiveStatus("Stopping Facebook Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/facebook/live/stop`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -616,27 +572,180 @@ function Dashboard() {
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to stop unified stream");
+      throw new Error(data.error || data.message || "Failed to stop Facebook Live");
     }
 
-    // Reset all platform states
     setFacebookLiveActive(false);
+    setLiveStatus("Facebook Live stopped.");
+
+    return data;
+  };
+
+  const startTwitchLive = async () => {
+    if (!twitchConnected || !twitchStreamKey) return null;
+
+    setLiveStatus("Starting Twitch Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/twitch/live/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channelId,
+        streamKey: twitchStreamKey,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to start Twitch Live");
+    }
+
+    setTwitchLiveActive(true);
+    setLiveStatus(`Twitch Live started. Container: ${data.containerName}`);
+
+    return data;
+  };
+
+  const stopTwitchLive = async () => {
+    if (!twitchLiveActive) return null;
+
+    setLiveStatus("Stopping Twitch Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/twitch/live/stop`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ channelId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to stop Twitch Live");
+    }
+
     setTwitchLiveActive(false);
+    setLiveStatus("Twitch Live stopped.");
+
+    return data;
+  };
+
+// Update startYouTubeLive in Dashboard.js to handle token refresh
+const startYouTubeLive = async () => {
+  if (!youtubeConnected || !youtubeAccessToken) return null;
+
+  setLiveStatus("Starting YouTube Live…");
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channelId,
+        accessToken: youtubeAccessToken,
+        refreshToken: youtubeRefreshToken,
+        title: "StreamMova Live",
+        description: "Live from StreamMova",
+      }),
+    });
+
+    const data = await response.json();
+
+    // Handle token refresh
+    if (response.status === 401 && data.newAccessToken) {
+      // Update the access token
+      setYoutubeAccessToken(data.newAccessToken);
+      
+      // Retry with new token
+      const retryResponse = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channelId,
+          accessToken: data.newAccessToken,
+          refreshToken: youtubeRefreshToken,
+          title: "StreamMova Live",
+          description: "Live from StreamMova",
+        }),
+      });
+
+      const retryData = await retryResponse.json();
+
+      if (!retryResponse.ok || !retryData.success) {
+        throw new Error(retryData.error || retryData.message || "Failed to start YouTube Live");
+      }
+
+      setYoutubeLiveActive(true);
+      setYoutubeStreamKey(retryData.streamKey || "");
+      setYoutubeRtmpUrl(retryData.rtmpUrl || "");
+      setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
+
+      return retryData;
+    }
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to start YouTube Live");
+    }
+
+    setYoutubeLiveActive(true);
+    setYoutubeStreamKey(data.streamKey || "");
+    setYoutubeRtmpUrl(data.rtmpUrl || "");
+    setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
+
+    return data;
+  } catch (error) {
+    console.error("startYouTubeLive error:", error);
+    throw error;
+  }
+};
+
+  const stopYouTubeLive = async () => {
+    if (!youtubeLiveActive) return null;
+
+    setLiveStatus("Stopping YouTube Live…");
+
+    const response = await fetch(`${API_BASE_URL}/api/youtube/live/stop`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ channelId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to stop YouTube Live");
+    }
+
     setYoutubeLiveActive(false);
-    setLiveStatus("Stream stopped.");
+    setLiveStatus("YouTube Live stopped.");
 
     return data;
   };
 
   const closeCamera = async () => {
     try {
-      // Only stop backend if any platform is active
-      if (facebookLiveActive || twitchLiveActive || youtubeLiveActive) {
-        await stopUnifiedStream();
+      const stopTasks = [];
+
+      if (facebookLiveActive) stopTasks.push(stopFacebookLive());
+      if (twitchLiveActive) stopTasks.push(stopTwitchLive());
+      if (youtubeLiveActive) stopTasks.push(stopYouTubeLive());
+
+      if (stopTasks.length > 0) {
+        await Promise.allSettled(stopTasks);
       }
     } catch (err) {
-      console.error("stop stream failed:", err);
-      setError(err.message || "Failed to stop stream.");
+      console.error("stop live failed:", err);
+      setError(err.message || "Failed to stop live stream.");
     } finally {
       stopCameraOnly();
       setIsStreaming(false);
@@ -651,7 +760,6 @@ function Dashboard() {
       setError("");
 
       if (!isStreaming) {
-        // Starting stream
         const stream = await openCamera();
         if (!stream) return;
 
@@ -665,12 +773,28 @@ function Dashboard() {
           throw new Error("Connect at least one platform before going live.");
         }
 
-        // Start unified stream (single container for all platforms)
-        await startUnifiedStream();
+        const startTasks = [];
+
+        if (hasFacebook) startTasks.push(startFacebookLive());
+        if (hasTwitch) startTasks.push(startTwitchLive());
+        if (hasYouTube) startTasks.push(startYouTubeLive());
+
+        const results = await Promise.allSettled(startTasks);
+        const failed = results.find((result) => result.status === "rejected");
+
+        if (failed) {
+          throw failed.reason;
+        }
+
         setIsStreaming(true);
 
+        const livePlatforms = [];
+        if (hasFacebook) livePlatforms.push("Facebook");
+        if (hasTwitch) livePlatforms.push("Twitch");
+        if (hasYouTube) livePlatforms.push("YouTube");
+
+        setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
       } else {
-        // Stopping stream
         await closeCamera();
       }
     } catch (err) {
