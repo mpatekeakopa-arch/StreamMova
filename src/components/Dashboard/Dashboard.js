@@ -84,6 +84,7 @@ function Dashboard() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const modalRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
 
   // Refs to hold the latest values for cleanup (avoids dependency issues)
   const cameraStreamRef = useRef(cameraStream);
@@ -180,6 +181,118 @@ function Dashboard() {
     selectedFacebookPageId,
     facebookConnectStatus,
   ]);
+
+  // Check for active streams on mount - restore streaming state
+  useEffect(() => {
+    const checkActiveStreams = async () => {
+      if (!channelId || channelId === 'test') return;
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/stream/status/${channelId}`);
+        const data = await response.json();
+        
+        if (data.success && data.isStreaming) {
+          // Restore streaming state for each platform
+          if (data.facebook?.active) {
+            setFacebookLiveActive(true);
+            setIsStreaming(true);
+            setLiveStatus(`Facebook Live active (since ${new Date(data.facebook.startedAt).toLocaleTimeString()})`);
+          }
+          
+          if (data.twitch?.active) {
+            setTwitchLiveActive(true);
+            setIsStreaming(true);
+            setLiveStatus(prev => 
+              prev ? `${prev} | Twitch Live active` : `Twitch Live active (since ${new Date(data.twitch.startedAt).toLocaleTimeString()})`
+            );
+          }
+          
+          if (data.youtube?.active) {
+            setYoutubeLiveActive(true);
+            setIsStreaming(true);
+            setLiveStatus(prev => 
+              prev ? `${prev} | YouTube Live active` : `YouTube Live active (since ${new Date(data.youtube.startedAt).toLocaleTimeString()})`
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check active streams:', err);
+      }
+    };
+
+    checkActiveStreams();
+  }, [channelId]);
+
+  // Heartbeat to monitor active streams
+  useEffect(() => {
+    if (isStreaming && (facebookLiveActive || twitchLiveActive || youtubeLiveActive)) {
+      // Clear existing interval
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+      
+      // Start heartbeat every 15 seconds
+      heartbeatIntervalRef.current = setInterval(async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/stream/heartbeat/${channelId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              facebook: facebookLiveActive,
+              twitch: twitchLiveActive,
+              youtube: youtubeLiveActive
+            })
+          });
+          
+          const data = await response.json();
+          
+          // Update status if streams stopped unexpectedly
+          if (data.facebook?.stopped && facebookLiveActive) {
+            setFacebookLiveActive(false);
+            setLiveStatus('Facebook stream stopped unexpectedly');
+          }
+          
+          if (data.twitch?.stopped && twitchLiveActive) {
+            setTwitchLiveActive(false);
+            setLiveStatus('Twitch stream stopped unexpectedly');
+          }
+          
+          if (data.youtube?.stopped && youtubeLiveActive) {
+            setYoutubeLiveActive(false);
+            setLiveStatus('YouTube stream stopped unexpectedly');
+          }
+          
+          // Update overall streaming status
+          const stillStreaming = 
+            (facebookLiveActive && !data.facebook?.stopped) ||
+            (twitchLiveActive && !data.twitch?.stopped) ||
+            (youtubeLiveActive && !data.youtube?.stopped);
+          
+          if (!stillStreaming && !data.facebook?.stopped && !data.twitch?.stopped && !data.youtube?.stopped) {
+            // All platforms that were active have stopped
+            setIsStreaming(false);
+          }
+        } catch (err) {
+          console.error('Heartbeat check failed:', err);
+        }
+      }, 15000);
+      
+      return () => {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+      };
+    } else {
+      // Clear heartbeat when not streaming
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+    }
+  }, [isStreaming, facebookLiveActive, twitchLiveActive, youtubeLiveActive, channelId]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -1085,9 +1198,16 @@ const startYouTubeLive = async () => {
     );
   }, [twitchLiveActive, facebookLiveActive, youtubeLiveActive]);
 
-  // Cleanup on unmount – uses refs, no dependencies
+  // Cleanup on unmount – only clean local resources
   useEffect(() => {
     return () => {
+      // Clear heartbeat interval
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      
+      // Only stop local camera/media resources
       const stream = streamRef.current || cameraStreamRef.current;
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
@@ -1104,6 +1224,9 @@ const startYouTubeLive = async () => {
       if (scheduleTimeoutRef.current) {
         clearTimeout(scheduleTimeoutRef.current);
       }
+      
+      // NOTE: Backend streams are NOT stopped here
+      // They persist and can be stopped when user returns
     };
   }, []);
 
