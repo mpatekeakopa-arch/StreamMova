@@ -176,6 +176,161 @@ async function playFromSrs(video, streamKey) {
 }
 
 // =========================
+// CANVAS COMPOSITOR - Mixes multiple streams into one
+// =========================
+
+class StreamCompositor {
+  constructor(canvas, width = 1280, height = 720) {
+    this.canvas = canvas;
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.ctx = canvas.getContext('2d');
+    this.videos = [];
+    this.animationId = null;
+    this.outputStream = null;
+    this.layout = 'side-by-side'; // 'side-by-side' or 'pip' (picture-in-picture)
+  }
+
+  addVideo(video, label = '') {
+    this.videos.push({ video, label });
+    this._draw();
+  }
+
+  removeVideo(video) {
+    this.videos = this.videos.filter(v => v.video !== video);
+    this._draw();
+  }
+
+  setLayout(layout) {
+    this.layout = layout;
+    this._draw();
+  }
+
+  _draw() {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+    }
+
+    const drawFrame = () => {
+      this.ctx.fillStyle = '#05060a';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+      const numVideos = this.videos.length;
+
+      if (numVideos === 0) {
+        // Draw placeholder
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        this.ctx.font = '24px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Waiting for streams...', this.canvas.width / 2, this.canvas.height / 2);
+      } else if (numVideos === 1) {
+        // Single stream - full canvas
+        this._drawVideoFrame(this.videos[0], 0, 0, this.canvas.width, this.canvas.height);
+      } else {
+        // Multiple streams - side by side
+        if (this.layout === 'side-by-side') {
+          this._drawSideBySide();
+        } else {
+          this._drawPIP();
+        }
+      }
+
+      this.animationId = requestAnimationFrame(drawFrame);
+    };
+
+    drawFrame();
+  }
+
+  _drawSideBySide() {
+    const numVideos = this.videos.length;
+    const cols = numVideos <= 2 ? numVideos : 2;
+    const rows = Math.ceil(numVideos / cols);
+    const cellWidth = this.canvas.width / cols;
+    const cellHeight = this.canvas.height / rows;
+
+    this.videos.forEach((videoObj, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const x = col * cellWidth;
+      const y = row * cellHeight;
+      
+      this._drawVideoFrame(videoObj, x, y, cellWidth, cellHeight);
+
+      // Draw label
+      if (videoObj.label) {
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fillRect(x + 10, y + 10, this.ctx.measureText(videoObj.label).width + 20, 30);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '14px Arial';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(videoObj.label, x + 20, y + 30);
+      }
+    });
+  }
+
+  _drawPIP() {
+    // Main video (host) takes full canvas
+    this._drawVideoFrame(this.videos[0], 0, 0, this.canvas.width, this.canvas.height);
+
+    // Additional videos as PIP
+    const pipWidth = this.canvas.width * 0.25;
+    const pipHeight = this.canvas.height * 0.25;
+    const padding = 20;
+
+    for (let i = 1; i < this.videos.length; i++) {
+      const pipX = this.canvas.width - pipWidth - padding;
+      const pipY = padding + (i - 1) * (pipHeight + padding);
+      
+      // PIP border
+      this.ctx.strokeStyle = '#9146FF';
+      this.ctx.lineWidth = 2;
+      this.ctx.strokeRect(pipX - 2, pipY - 2, pipWidth + 4, pipHeight + 4);
+      
+      this._drawVideoFrame(this.videos[i], pipX, pipY, pipWidth, pipHeight);
+    }
+  }
+
+  _drawVideoFrame(videoObj, x, y, width, height) {
+    const video = videoObj.video;
+    if (!video || video.readyState < 2) return;
+
+    // Mirror the video
+    this.ctx.save();
+    this.ctx.translate(x + width, y);
+    this.ctx.scale(-1, 1);
+    this.ctx.drawImage(video, 0, 0, width, height);
+    this.ctx.restore();
+  }
+
+  getOutputStream() {
+    if (!this.outputStream) {
+      this.outputStream = this.canvas.captureStream(30); // 30 FPS
+      
+      // Also capture audio from the first video (host)
+      if (this.videos.length > 0) {
+        const audioTracks = this.videos[0].video.srcObject?.getAudioTracks();
+        if (audioTracks && audioTracks.length > 0) {
+          this.outputStream.addTrack(audioTracks[0].clone());
+        }
+      }
+    }
+    return this.outputStream;
+  }
+
+  stop() {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+      this.animationId = null;
+    }
+    if (this.outputStream) {
+      this.outputStream.getTracks().forEach(track => track.stop());
+      this.outputStream = null;
+    }
+    this.videos = [];
+  }
+}
+
+// =========================
 // STREAM TOGETHER MAIN
 // =========================
 
@@ -203,7 +358,7 @@ function StreamTogether() {
 }
 
 // =========================
-// STREAM TOGETHER HOST
+// STREAM TOGETHER HOST - WITH COMPOSITED OUTPUT
 // =========================
 
 function StreamTogetherHost({ onBack }) {
@@ -221,9 +376,13 @@ function StreamTogetherHost({ onBack }) {
   const [ffmpegStatus, setFfmpegStatus] = useState("");
 
   const videoRef = useRef(null);
+  const canvasRef = useRef(null); // Canvas for compositing
   const streamRef = useRef(null);
   const publisherRef = useRef(null);
   const testPublisherRef = useRef(null);
+  const compositorRef = useRef(null);
+  const cohostVideoRefs = useRef({}); // Store video elements for co-hosts
+  const cohostPlayersRef = useRef({}); // Store SRS players for co-hosts
   const modalRef = useRef(null);
 
   const cohostLink = session
@@ -269,6 +428,52 @@ function StreamTogetherHost({ onBack }) {
       setConnectedChannels([]);
       setSelectedChannelIds([]);
     }
+  };
+
+  // Play co-host streams from SRS
+  const playCoHostStream = async (publisher) => {
+    if (!cohostVideoRefs.current[publisher.streamKey]) {
+      // Create a hidden video element for the co-host
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true; // Must be muted for autoplay
+      video.style.display = 'none';
+      document.body.appendChild(video);
+      cohostVideoRefs.current[publisher.streamKey] = video;
+      
+      try {
+        const player = await playFromSrs(video, publisher.streamKey);
+        cohostPlayersRef.current[publisher.streamKey] = player;
+        
+        // Add to compositor
+        if (compositorRef.current) {
+          const label = publisher.role === 'host' ? 'Host' : `Co-host`;
+          compositorRef.current.addVideo(video, label);
+        }
+      } catch (err) {
+        console.warn(`Failed to play co-host stream: ${publisher.streamKey}`, err);
+      }
+    }
+  };
+
+  // Setup compositor with canvas
+  const setupCompositor = () => {
+    if (!canvasRef.current) return;
+    
+    if (!compositorRef.current) {
+      compositorRef.current = new StreamCompositor(canvasRef.current, 1280, 720);
+    }
+
+    // Add host video
+    if (videoRef.current) {
+      compositorRef.current.addVideo(videoRef.current, 'Host');
+    }
+
+    // Add existing co-host videos
+    Object.values(cohostVideoRefs.current).forEach(video => {
+      compositorRef.current.addVideo(video, 'Co-host');
+    });
   };
 
   useEffect(() => {
@@ -450,9 +655,15 @@ function StreamTogetherHost({ onBack }) {
 
     return () => {
       window.removeEventListener("storage", handleStorage);
+      // Cleanup co-host videos
+      Object.values(cohostVideoRefs.current).forEach(v => {
+        v.remove();
+      });
+      cohostVideoRefs.current = {};
     };
   }, []);
 
+  // Poll for new co-hosts and play their streams
   useEffect(() => {
     if (!isLive || !session?.sessionId) return;
 
@@ -460,6 +671,12 @@ function StreamTogetherHost({ onBack }) {
       try {
         const data = await apiFetch(`/session/${session.sessionId}`);
         setSession(data.session);
+        
+        // Auto-play new co-host streams
+        const cohostPublishers = data.session?.publishers?.filter(p => p.role === 'cohost') || [];
+        for (const publisher of cohostPublishers) {
+          await playCoHostStream(publisher);
+        }
       } catch (err) {
         console.warn("Session refresh failed:", err);
       }
@@ -489,16 +706,36 @@ function StreamTogetherHost({ onBack }) {
       await videoRef.current.play().catch(() => {});
     }
     setCameraActive(true);
+    
+    // Add to compositor
+    if (compositorRef.current) {
+      compositorRef.current.addVideo(videoRef.current, 'Host');
+    }
+    
     return stream;
   };
 
   const stopLocalMedia = () => {
+    // Stop compositor
+    compositorRef.current?.stop();
+    compositorRef.current = null;
+    
+    // Stop SRS publishers
     publisherRef.current?.close?.();
     publisherRef.current = null;
     testPublisherRef.current?.close?.();
     testPublisherRef.current = null;
+    
+    // Stop host stream
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    
+    // Stop co-host streams
+    Object.values(cohostPlayersRef.current).forEach(player => player?.close?.());
+    cohostPlayersRef.current = {};
+    Object.values(cohostVideoRefs.current).forEach(v => v.remove());
+    cohostVideoRefs.current = {};
+    
     saveHostRuntime({
       stream: null,
       publisher: null,
@@ -506,6 +743,7 @@ function StreamTogetherHost({ onBack }) {
       cameraActive: false,
       isLive: false,
     });
+    
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraActive(false);
   };
@@ -675,25 +913,30 @@ function StreamTogetherHost({ onBack }) {
       const hostStreamKey = `${currentSession.sessionId}-host`;
       let publishStatus = "publishing";
 
+      // Setup compositor
+      setupCompositor();
+
+      // Publish host camera to session (for co-hosts to see)
       try {
         const publisher = await publishToSrs(stream, hostStreamKey);
         publisherRef.current = publisher;
         saveHostRuntime({ publisher });
-        console.log("Published to session stream:", hostStreamKey);
+        console.log("Published host stream:", hostStreamKey);
       } catch (publishError) {
         publishStatus = "local-preview";
         console.warn("Host SRS publish failed:", publishError);
       }
 
+      // Publish COMPOSITED stream to "test" stream for FFmpeg
       if (selectedDestinations.length > 0) {
         try {
-          const testStream = stream.clone();
-          const testPublisher = await publishToSrs(testStream, "test");
+          const compositedStream = compositorRef.current.getOutputStream();
+          const testPublisher = await publishToSrs(compositedStream, "test");
           testPublisherRef.current = testPublisher;
           saveHostRuntime({ testPublisher });
-          console.log("Published clone to test stream for FFmpeg");
+          console.log("Published composited stream to test for FFmpeg");
         } catch (testPublishError) {
-          console.warn("Failed to publish clone to test stream:", testPublishError);
+          console.warn("Failed to publish composited stream:", testPublishError);
         }
       }
 
@@ -859,6 +1102,14 @@ function StreamTogetherHost({ onBack }) {
 
         <div className="stream-together-grid">
           <div className="stream-together-card">
+            {/* Hidden canvas for compositing */}
+            <canvas 
+              ref={canvasRef} 
+              style={{ display: 'none' }}
+              width="1280" 
+              height="720"
+            />
+            
             <div className="stream-together-video">
               <video ref={videoRef} autoPlay muted playsInline />
               {!cameraActive && (
@@ -879,6 +1130,31 @@ function StreamTogetherHost({ onBack }) {
                 </div>
               )}
             </div>
+
+            {/* Show composited preview when live */}
+            {isLive && compositorRef.current && (
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ marginBottom: 8 }}>Combined Stream Preview (Sent to platforms)</h3>
+                <div className="stream-together-video" style={{ maxHeight: 360 }}>
+                  <canvas 
+                    ref={(el) => {
+                      if (el && compositorRef.current) {
+                        // Mirror the compositor canvas to this preview canvas
+                        const drawPreview = () => {
+                          const ctx = el.getContext('2d');
+                          el.width = compositorRef.current.canvas.width;
+                          el.height = compositorRef.current.canvas.height;
+                          ctx.drawImage(compositorRef.current.canvas, 0, 0);
+                          requestAnimationFrame(drawPreview);
+                        };
+                        drawPreview();
+                      }
+                    }}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="stream-together-controls">
               <div className="stream-together-field">
@@ -1045,8 +1321,8 @@ function StreamTogetherHost({ onBack }) {
             <InviteLink label="Viewer link" value={viewerLink} onCopy={copy} />
 
             <p className="stream-together-muted">
-              Co-hosts publish their camera into this session. Keep the backend
-              and SRS server running while guests join.
+              Co-hosts publish their camera into this session. Their video will be
+              combined with yours into a single stream for external platforms.
             </p>
             {copied && <div className="stream-together-error">{copied}</div>}
           </div>
@@ -1081,7 +1357,7 @@ function StreamTogetherHost({ onBack }) {
 }
 
 // =========================
-// SHARED COMPONENTS
+// SHARED COMPONENTS (Keep existing)
 // =========================
 
 function InviteLink({ label, value, onCopy }) {
@@ -1127,6 +1403,7 @@ function StreamTogetherHeader({ isLive, onBack }) {
   );
 }
 
+// Keep existing CoHostJoin and StreamViewer components unchanged
 function CoHostJoin({ sessionId, onBack }) {
   const [session, setSession] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -1283,7 +1560,7 @@ function CoHostJoin({ sessionId, onBack }) {
               Session ID: <span className="stream-together-code">{sessionId}</span>
             </p>
             <p className="stream-together-muted">
-              Your video will be registered as a co-host publisher for the host.
+              Your video will be combined with the host's stream for external platforms.
             </p>
           </div>
         </div>
@@ -1292,265 +1569,122 @@ function CoHostJoin({ sessionId, onBack }) {
   );
 }
 
-// =========================
-// STREAM VIEWER - UPDATED WITH MULTI-STREAM SUPPORT
-// =========================
-
 function StreamViewer({ sessionId, onBack }) {
   const [session, setSession] = useState(null);
   const [error, setError] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
-  const videoRefs = useRef({});
-  const playerRefs = useRef({});
+  const videoRef = useRef(null);
+  const playerRef = useRef(null);
 
   const hostPublisher = useMemo(
     () => session?.publishers?.find((publisher) => publisher.role === "host"),
     [session]
   );
 
-  const coHostPublishers = useMemo(
+  const coHosts = useMemo(
     () => session?.publishers?.filter((publisher) => publisher.role === "cohost") || [],
     [session]
   );
-
-  const totalStreams = (hostPublisher ? 1 : 0) + coHostPublishers.length;
 
   useEffect(() => {
     apiFetch(`/session/${sessionId}`)
       .then((data) => setSession(data.session))
       .catch((err) => setError(err.message || "Stream not found."));
 
-    // Poll for new co-hosts every 3 seconds
-    const timer = setInterval(async () => {
-      try {
-        const data = await apiFetch(`/session/${sessionId}`);
-        setSession((prev) => {
-          // Only update if publishers changed to avoid re-renders
-          if (JSON.stringify(prev?.publishers) !== JSON.stringify(data.session?.publishers)) {
-            return data.session;
-          }
-          return prev;
-        });
-      } catch (err) {
-        console.warn("Session refresh failed:", err);
-      }
-    }, 3000);
-
-    return () => {
-      clearInterval(timer);
-      // Cleanup all players
-      Object.values(playerRefs.current).forEach(player => {
-        player?.close?.();
-      });
-      playerRefs.current = {};
-    };
+    return () => playerRef.current?.close?.();
   }, [sessionId]);
 
-  // Auto-play new co-host streams when they appear
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    coHostPublishers.forEach(async (cohost) => {
-      const videoEl = videoRefs.current[cohost.streamKey];
-      if (videoEl && !playerRefs.current[cohost.streamKey]) {
-        try {
-          const player = await playFromSrs(videoEl, cohost.streamKey);
-          playerRefs.current[cohost.streamKey] = player;
-        } catch (err) {
-          console.warn(`Failed to play co-host stream: ${cohost.streamKey}`, err);
-        }
-      }
-    });
-  }, [coHostPublishers, isPlaying]);
-
-  const playAllStreams = async () => {
-    if (!hostPublisher?.streamKey) {
+  const play = async () => {
+    if (!hostPublisher?.streamKey || !videoRef.current) {
       setError("The host stream is not live yet.");
       return;
     }
 
     try {
       setError("");
-      
-      // Clean up existing players
-      Object.values(playerRefs.current).forEach(player => player?.close?.());
-      playerRefs.current = {};
-
-      // Play host stream
-      const hostVideo = videoRefs.current['host'];
-      if (hostVideo) {
-        const player = await playFromSrs(hostVideo, hostPublisher.streamKey);
-        playerRefs.current['host'] = player;
-      }
-
-      // Play all co-host streams
-      for (const cohost of coHostPublishers) {
-        const cohostVideo = videoRefs.current[cohost.streamKey];
-        if (cohostVideo) {
-          try {
-            const player = await playFromSrs(cohostVideo, cohost.streamKey);
-            playerRefs.current[cohost.streamKey] = player;
-          } catch (err) {
-            console.warn(`Failed to play co-host stream: ${cohost.streamKey}`, err);
-          }
-        }
-      }
-
+      playerRef.current?.close?.();
+      playerRef.current = await playFromSrs(videoRef.current, hostPublisher.streamKey);
       setIsPlaying(true);
     } catch (err) {
-      setError(err.message || "Failed to play streams.");
-      setIsPlaying(false);
+      setError(err.message || "Failed to play stream.");
     }
   };
-
-  const setVideoRef = (key) => (element) => {
-    if (element) {
-      videoRefs.current[key] = element;
-    }
-  };
-
-  const gridClass = totalStreams <= 2 ? 'two-col' : totalStreams <= 4 ? 'four-col' : 'multi-col';
 
   return (
     <div className="stream-together-page">
       <div className="stream-together-shell">
         <StreamTogetherHeader isLive={session?.status === "live"} onBack={onBack} />
-        
-        <div className="stream-together-viewer-layout">
-          {/* Multi-stream grid */}
-          <div className="stream-together-viewer-main">
-            <div className={`stream-together-video-grid ${gridClass}`}>
-              {/* Host stream - always shown first and larger if possible */}
-              {hostPublisher && (
-                <div className="stream-together-stream-item host-stream">
-                  <div className="stream-together-stream-label">
-                    <span>🎙️ Host</span>
-                    <span className="stream-together-mini-badge">LIVE</span>
-                  </div>
-                  <div className="stream-together-video">
-                    <video
-                      ref={setVideoRef('host')}
-                      autoPlay
-                      playsInline
-                      controls
-                    />
-                    {!isPlaying && (
-                      <div className="stream-together-placeholder">
-                        <div>
-                          <i className="fas fa-play-circle"></i>
-                          <strong>Host Stream</strong>
-                          <p className="stream-together-muted">
-                            Click "Watch Streams" below
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+        <div className="stream-together-grid stream-together-viewer-grid">
+          <div className="stream-together-card">
+            <div className="stream-together-stream-grid">
+              <div className="stream-together-stream-primary">
+                <div className="stream-together-stream-label">
+                  <span>Host</span>
+                  <small>{hostPublisher ? "Live host feed" : "Waiting for host"}</small>
                 </div>
-              )}
-
-              {/* Co-host streams */}
-              {coHostPublishers.map((cohost, index) => (
-                <div className="stream-together-stream-item cohost-stream" key={cohost.streamKey}>
-                  <div className="stream-together-stream-label">
-                    <span>👤 Co-host {index + 1}</span>
-                    <span className="stream-together-mini-badge">LIVE</span>
-                  </div>
-                  <div className="stream-together-video">
-                    <video
-                      ref={setVideoRef(cohost.streamKey)}
-                      autoPlay
-                      playsInline
-                      controls
-                    />
-                    {!isPlaying && (
-                      <div className="stream-together-placeholder">
-                        <div>
-                          <i className="fas fa-user"></i>
-                          <strong>Co-host {index + 1}</strong>
-                        </div>
+                <div className="stream-together-video">
+                  <video ref={videoRef} autoPlay playsInline controls />
+                  {!isPlaying && (
+                    <div className="stream-together-placeholder">
+                      <div>
+                        <i className="fas fa-play-circle"></i>
+                        <strong>{session?.title || "Stream Together"}</strong>
+                        <p className="stream-together-muted">
+                          Press play when the host is live.
+                        </p>
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {/* Empty state */}
-              {totalStreams === 0 && (
-                <div className="stream-together-empty-state">
-                  <div className="stream-together-placeholder">
-                    <div>
-                      <i className="fas fa-users"></i>
-                      <strong>{session?.title || "Stream Together"}</strong>
-                      <p className="stream-together-muted">
-                        Waiting for the host to go live...
-                      </p>
                     </div>
-                  </div>
+                  )}
                 </div>
-              )}
+              </div>
+
+              <div className="stream-together-stream-secondary">
+                <div className="stream-together-stream-label">
+                  <span>Co-hosts</span>
+                  <small>{coHosts.length} active</small>
+                </div>
+                <div className="stream-together-cohost-list">
+                  {coHosts.length === 0 ? (
+                    <div className="stream-together-muted">
+                      No co-hosts are live yet.
+                    </div>
+                  ) : (
+                    coHosts.map((publisher) => (
+                      <div className="stream-together-cohost-item" key={publisher.streamKey}>
+                        <strong>{publisher.userId || publisher.streamKey}</strong>
+                        <p className="stream-together-muted">
+                          {publisher.publishStatus === "publishing" ? "Live now" : "Preview mode"}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="stream-together-actions" style={{ marginTop: 18 }}>
-              <button 
-                className="stream-together-button primary" 
-                onClick={playAllStreams}
-                disabled={!hostPublisher || isPlaying}
-              >
+              <button className="stream-together-button primary" onClick={play}>
                 <i className="fas fa-play"></i>
-                {isPlaying ? "Watching..." : "Watch Streams"}
+                Play Stream
               </button>
-              {isPlaying && (
-                <button 
-                  className="stream-together-button"
-                  onClick={() => {
-                    Object.values(playerRefs.current).forEach(p => p?.close?.());
-                    playerRefs.current = {};
-                    setIsPlaying(false);
-                  }}
-                >
-                  <i className="fas fa-stop"></i>
-                  Stop
-                </button>
-              )}
             </div>
             {error && <div className="stream-together-error">{error}</div>}
           </div>
 
-          {/* Sidebar */}
-          <div className="stream-together-panel stream-together-viewer-sidebar">
+          <div className="stream-together-panel">
             <h2>Now Watching</h2>
             <p className="stream-together-muted">
               Session ID: <span className="stream-together-code">{sessionId}</span>
             </p>
             <div className="stream-together-meta">
               <div className="stream-together-meta-item">
-                <span>Active Streams</span>
-                <strong>{totalStreams}</strong>
+                <span>Active publishers</span>
+                <strong>{session?.publishers?.length || 0}</strong>
               </div>
               <div className="stream-together-meta-item">
                 <span>Status</span>
                 <strong>{session?.status || "loading"}</strong>
               </div>
-            </div>
-
-            <h3 style={{ marginTop: 22 }}>Participants</h3>
-            <div className="stream-together-participants">
-              {hostPublisher && (
-                <div className="stream-together-person host">
-                  <span className="stream-together-role-badge host">Host</span>
-                  <span className="stream-together-code">{hostPublisher.streamKey}</span>
-                </div>
-              )}
-              {coHostPublishers.map((cohost, index) => (
-                <div className="stream-together-person" key={cohost.streamKey}>
-                  <span className="stream-together-role-badge">Co-host {index + 1}</span>
-                  <span className="stream-together-code">{cohost.streamKey}</span>
-                </div>
-              ))}
-              {totalStreams === 0 && (
-                <p className="stream-together-muted">No participants yet</p>
-              )}
             </div>
           </div>
         </div>
