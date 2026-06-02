@@ -54,7 +54,7 @@ function Sidebar({ isSidebarOpen, activeNav, toggleSidebar, handleNavClick }) {
             className={`nav-item ${activeNav === "streamtogether" ? "active" : ""}`}
             onClick={() => {
               handleNavClick("streamtogether");
-              navigate("/stream-together");
+              navigate("/StreamTogether");
             }}
           >
             <i className="nav-icon fas fa-users"></i>
