@@ -16,7 +16,7 @@ const STREAM_TOGETHER_HOST_STATE_KEY = "streammova_stream_together_host_state";
 const streamTogetherHostRuntime = {
   stream: null,
   publisher: null,
-  testPublisher: null,
+  mixedPublisher: null,
   session: null,
   cameraActive: false,
   isLive: false,
@@ -193,7 +193,7 @@ class StreamCompositor {
     this.audioSources = [];
     this.layout = 'side-by-side';
     this.isRunning = false;
-    this.onFrame = null; // Callback for preview
+    this.onFrame = null;
   }
 
   addVideo(video, label = '') {
@@ -203,6 +203,9 @@ class StreamCompositor {
     console.log(`Compositor: Added ${label}. Total videos: ${this.videos.length}`);
     
     this._addAudioSource(video);
+    
+    // Rebuild output stream when participants change (FIX E)
+    this._rebuildOutputStream();
     
     if (!this.isRunning) {
       this._draw();
@@ -214,6 +217,9 @@ class StreamCompositor {
     this.videos = this.videos.filter(v => v.video !== video);
     this._removeAudioSource(video);
     console.log(`Compositor: Removed video. Remaining: ${this.videos.length}`);
+    
+    // Rebuild output stream when participants change (FIX E)
+    this._rebuildOutputStream();
   }
 
   setLayout(layout) {
@@ -250,6 +256,42 @@ class StreamCompositor {
       } catch (e) {}
       this.audioSources.splice(index, 1);
     }
+  }
+
+  // FIX E: Rebuild audio output when participants join/leave
+  _rebuildOutputStream() {
+    if (this.outputStream) {
+      // Stop old tracks
+      this.outputStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Create fresh canvas stream
+    const canvasStream = this.canvas.captureStream(30);
+    const videoTrack = canvasStream.getVideoTracks()[0];
+    
+    this.outputStream = new MediaStream();
+    this.outputStream.addTrack(videoTrack);
+    
+    // Add mixed audio if available
+    if (this.audioDestination) {
+      this.audioDestination.stream.getAudioTracks().forEach(track => {
+        this.outputStream.addTrack(track);
+      });
+    } else {
+      const firstVideo = this.videos[0]?.video;
+      if (firstVideo?.srcObject) {
+        const audioTracks = firstVideo.srcObject.getAudioTracks();
+        audioTracks.forEach(track => {
+          this.outputStream.addTrack(track.clone());
+        });
+      }
+    }
+    
+    console.log('Compositor: Rebuilt output stream with', {
+      videoTracks: this.outputStream.getVideoTracks().length,
+      audioTracks: this.outputStream.getAudioTracks().length,
+      participants: this.videos.length
+    });
   }
 
   _draw() {
@@ -333,47 +375,19 @@ class StreamCompositor {
     }
   }
 
+  // FIX F: Removed mirroring from the final broadcast
   _drawVideoFrame(videoObj, x, y, width, height) {
     const video = videoObj.video;
     if (!video || video.readyState < 2) return;
 
-    this.ctx.save();
-    this.ctx.translate(x + width, y);
-    this.ctx.scale(-1, 1);
-    this.ctx.drawImage(video, 0, 0, width, height);
-    this.ctx.restore();
+    // Draw without mirroring for broadcast
+    this.ctx.drawImage(video, x, y, width, height);
   }
 
   getOutputStream() {
-    if (this.outputStream) {
-      return this.outputStream;
+    if (!this.outputStream) {
+      this._rebuildOutputStream();
     }
-
-    const canvasStream = this.canvas.captureStream(30);
-    const videoTrack = canvasStream.getVideoTracks()[0];
-
-    this.outputStream = new MediaStream();
-    this.outputStream.addTrack(videoTrack);
-
-    if (this.audioDestination) {
-      this.audioDestination.stream.getAudioTracks().forEach(track => {
-        this.outputStream.addTrack(track);
-      });
-    } else {
-      const firstVideo = this.videos[0]?.video;
-      if (firstVideo?.srcObject) {
-        const audioTracks = firstVideo.srcObject.getAudioTracks();
-        audioTracks.forEach(track => {
-          this.outputStream.addTrack(track.clone());
-        });
-      }
-    }
-
-    console.log('Compositor output stream ready:', {
-      videoTracks: this.outputStream.getVideoTracks().length,
-      audioTracks: this.outputStream.getAudioTracks().length
-    });
-
     return this.outputStream;
   }
 
@@ -452,12 +466,11 @@ function StreamTogetherHost({ onBack }) {
   const previewCanvasRef = useRef(null);
   const streamRef = useRef(null);
   const publisherRef = useRef(null);
-  const testPublisherRef = useRef(null);
+  const mixedPublisherRef = useRef(null);
   const compositorRef = useRef(null);
   const cohostVideoRefs = useRef({});
   const cohostPlayersRef = useRef({});
   const modalRef = useRef(null);
-  
 
   const cohostLink = session
     ? `${window.location.origin}/cohost-join/${session.sessionId}`
@@ -501,6 +514,31 @@ function StreamTogetherHost({ onBack }) {
       console.warn("Failed to load connected channels:", err);
       setConnectedChannels([]);
       setSelectedChannelIds([]);
+    }
+  };
+
+  // FIX D: Remove co-host videos when they disconnect
+  const removeCoHostStream = (streamKey) => {
+    const video = cohostVideoRefs.current[streamKey];
+    if (video) {
+      // Remove from compositor
+      if (compositorRef.current) {
+        compositorRef.current.removeVideo(video);
+      }
+      
+      // Close SRS player
+      const player = cohostPlayersRef.current[streamKey];
+      if (player) {
+        player.close();
+        delete cohostPlayersRef.current[streamKey];
+      }
+      
+      // Stop and remove video element
+      video.srcObject?.getTracks().forEach(t => t.stop());
+      video.remove();
+      delete cohostVideoRefs.current[streamKey];
+      
+      console.log(`Removed co-host stream: ${streamKey}`);
     }
   };
 
@@ -575,18 +613,6 @@ function StreamTogetherHost({ onBack }) {
     });
   };
 
-  // Start/stop preview when live state changes
-  useEffect(() => {
-    if (isLive && compositorRef.current && previewCanvasRef.current) {
-      console.log("Starting preview renderer");
-      // The onFrame callback in compositor handles the preview now
-    }
-    
-    return () => {
-      // Cleanup handled by compositor.stop()
-    };
-  }, [isLive]);
-
   useEffect(() => {
     const stored = (() => {
       try {
@@ -616,7 +642,7 @@ function StreamTogetherHost({ onBack }) {
     ) {
       streamRef.current = restoredStream;
       publisherRef.current = streamTogetherHostRuntime.publisher;
-      testPublisherRef.current = streamTogetherHostRuntime.testPublisher;
+      mixedPublisherRef.current = streamTogetherHostRuntime.mixedPublisher;
       setCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = restoredStream;
@@ -774,6 +800,7 @@ function StreamTogetherHost({ onBack }) {
     };
   }, []);
 
+  // FIX D: Poll for session changes and clean up disconnected co-hosts
   useEffect(() => {
     if (!isLive || !session?.sessionId) return;
 
@@ -782,7 +809,21 @@ function StreamTogetherHost({ onBack }) {
         const data = await apiFetch(`/session/${session.sessionId}`);
         setSession(data.session);
         
-        const cohostPublishers = data.session?.publishers?.filter(p => p.role === 'cohost') || [];
+        const currentPublishers = data.session?.publishers || [];
+        const currentCoHostKeys = currentPublishers
+          .filter(p => p.role === 'cohost')
+          .map(p => p.streamKey);
+        
+        // Remove co-hosts that are no longer in the session (FIX D)
+        Object.keys(cohostVideoRefs.current).forEach(streamKey => {
+          if (!currentCoHostKeys.includes(streamKey)) {
+            console.log(`Co-host disconnected: ${streamKey}`);
+            removeCoHostStream(streamKey);
+          }
+        });
+        
+        // Play new co-host streams
+        const cohostPublishers = currentPublishers.filter(p => p.role === 'cohost');
         for (const publisher of cohostPublishers) {
           await playCoHostStream(publisher);
         }
@@ -830,9 +871,9 @@ function StreamTogetherHost({ onBack }) {
     publisherRef.current?.close?.();
     publisherRef.current = null;
     
-    if (testPublisherRef.current) {
-      testPublisherRef.current.close();
-      testPublisherRef.current = null;
+    if (mixedPublisherRef.current) {
+      mixedPublisherRef.current.close();
+      mixedPublisherRef.current = null;
     }
     
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -849,7 +890,7 @@ function StreamTogetherHost({ onBack }) {
     saveHostRuntime({
       stream: null,
       publisher: null,
-      testPublisher: null,
+      mixedPublisher: null,
       cameraActive: false,
       isLive: false,
     });
@@ -907,12 +948,13 @@ function StreamTogetherHost({ onBack }) {
     return created.session;
   };
 
-  const startFFmpegForDestinations = async () => {
+  const startFFmpegForDestinations = async (mixedStreamKey) => {
     const saved = readStoredChannels();
     const platformsStarted = [];
 
     for (const channel of selectedDestinations) {
       try {
+        // FIX C: FFmpeg consumes mixedStreamKey, not raw host stream
         if (channel.platform === "twitch" && saved.twitchStreamKey) {
           await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
             method: "POST",
@@ -920,6 +962,7 @@ function StreamTogetherHost({ onBack }) {
             body: JSON.stringify({
               channelId: session?.sessionId || "streamtogether",
               streamKey: saved.twitchStreamKey,
+              srsStreamKey: mixedStreamKey, // Pass the mixed stream key
             }),
           });
           platformsStarted.push("Twitch");
@@ -935,6 +978,7 @@ function StreamTogetherHost({ onBack }) {
               refreshToken: saved.youtubeRefreshToken,
               title: title || "Stream Together Live",
               description: "Live from Stream Together",
+              srsStreamKey: mixedStreamKey, // Pass the mixed stream key
             }),
           });
           platformsStarted.push("YouTube");
@@ -955,6 +999,7 @@ function StreamTogetherHost({ onBack }) {
                 description: "Live from Stream Together",
                 pageId: page.id,
                 pageAccessToken: page.access_token,
+                srsStreamKey: mixedStreamKey, // Pass the mixed stream key
               }),
             });
             platformsStarted.push("Facebook");
@@ -1021,6 +1066,8 @@ function StreamTogetherHost({ onBack }) {
       const stream = streamRef.current || (await activateCamera());
       const currentSession = await createInviteSession();
       const hostStreamKey = `${currentSession.sessionId}-host`;
+      // FIX A: Use ${sessionId}-mixed instead of "test"
+      const mixedStreamKey = `${currentSession.sessionId}-mixed`;
       let publishStatus = "publishing";
 
       setupCompositor();
@@ -1036,7 +1083,7 @@ function StreamTogetherHost({ onBack }) {
         console.warn("Host SRS publish failed:", publishError);
       }
 
-      // 2. Publish COMPOSITED stream (host + co-hosts) to "test" for FFmpeg
+      // 2. Publish COMPOSITED stream to mixedStreamKey for FFmpeg and viewers
       if (selectedDestinations.length > 0) {
         try {
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -1049,22 +1096,23 @@ function StreamTogetherHost({ onBack }) {
             });
           }
           
-          if (testPublisherRef.current) {
-            testPublisherRef.current.close();
+          if (mixedPublisherRef.current) {
+            mixedPublisherRef.current.close();
           }
           
-          const testPublisher = await publishToSrs(compositedStream, "test");
-          testPublisherRef.current = testPublisher;
-          saveHostRuntime({ testPublisher });
-          console.log("Published COMPOSITED stream to 'test' for FFmpeg");
+          // FIX A: Publish to mixedStreamKey
+          const mixedPublisher = await publishToSrs(compositedStream, mixedStreamKey);
+          mixedPublisherRef.current = mixedPublisher;
+          saveHostRuntime({ mixedPublisher });
+          console.log(`Published COMPOSITED stream to '${mixedStreamKey}' for FFmpeg and viewers`);
           setFfmpegStatus("Composited stream ready for external platforms");
-        } catch (testPublishError) {
-          console.error("Failed to publish composited stream:", testPublishError);
+        } catch (mixedPublishError) {
+          console.error("Failed to publish composited stream:", mixedPublishError);
           try {
             const fallbackStream = stream.clone();
-            const testPublisher = await publishToSrs(fallbackStream, "test");
-            testPublisherRef.current = testPublisher;
-            console.warn("Fallback: Publishing raw host stream to test");
+            const mixedPublisher = await publishToSrs(fallbackStream, mixedStreamKey);
+            mixedPublisherRef.current = mixedPublisher;
+            console.warn(`Fallback: Publishing raw host stream to ${mixedStreamKey}`);
           } catch (fallbackError) {
             console.error("Even fallback publish failed:", fallbackError);
           }
@@ -1095,9 +1143,9 @@ function StreamTogetherHost({ onBack }) {
         title: title.trim(),
       });
 
-      // 5. Start FFmpeg for selected destinations
+      // 5. Start FFmpeg with mixedStreamKey (FIX C)
       if (selectedDestinations.length > 0) {
-        await startFFmpegForDestinations();
+        await startFFmpegForDestinations(mixedStreamKey);
       }
 
       if (publishStatus === "local-preview") {
@@ -1265,7 +1313,7 @@ function StreamTogetherHost({ onBack }) {
               )}
             </div>
 
-            {/* Preview of composited stream - always rendered but hidden when not live */}
+            {/* Preview of composited stream */}
             <div style={{ marginTop: 16, display: isLive ? 'block' : 'none' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>Combined Stream (sent to platforms)</h3>
@@ -1730,12 +1778,16 @@ function CoHostJoin({ sessionId, onBack }) {
   );
 }
 
+// FIX B: Viewer plays mixedStreamKey, not hostStreamKey
 function StreamViewer({ sessionId, onBack }) {
   const [session, setSession] = useState(null);
   const [error, setError] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef(null);
   const playerRef = useRef(null);
+
+  // FIX B: Use mixed stream key for viewer
+  const mixedStreamKey = useMemo(() => `${sessionId}-mixed`, [sessionId]);
 
   const hostPublisher = useMemo(
     () => session?.publishers?.find((publisher) => publisher.role === "host"),
@@ -1755,19 +1807,33 @@ function StreamViewer({ sessionId, onBack }) {
     return () => playerRef.current?.close?.();
   }, [sessionId]);
 
+  // FIX B: Play the mixed stream instead of host-only stream
   const play = async () => {
-    if (!hostPublisher?.streamKey || !videoRef.current) {
-      setError("The host stream is not live yet.");
+    if (!videoRef.current) {
+      setError("Video element not ready.");
       return;
     }
 
     try {
       setError("");
       playerRef.current?.close?.();
-      playerRef.current = await playFromSrs(videoRef.current, hostPublisher.streamKey);
+      // Play the mixed/composited stream
+      playerRef.current = await playFromSrs(videoRef.current, mixedStreamKey);
       setIsPlaying(true);
+      console.log(`Viewer playing mixed stream: ${mixedStreamKey}`);
     } catch (err) {
-      setError(err.message || "Failed to play stream.");
+      // Fallback: try host stream if mixed stream fails
+      if (hostPublisher?.streamKey) {
+        try {
+          console.warn("Mixed stream failed, falling back to host stream");
+          playerRef.current = await playFromSrs(videoRef.current, hostPublisher.streamKey);
+          setIsPlaying(true);
+        } catch (fallbackErr) {
+          setError(fallbackErr.message || "Failed to play stream.");
+        }
+      } else {
+        setError(err.message || "Failed to play stream. The host may not be live yet.");
+      }
     }
   };
 
@@ -1780,8 +1846,8 @@ function StreamViewer({ sessionId, onBack }) {
             <div className="stream-together-stream-grid">
               <div className="stream-together-stream-primary">
                 <div className="stream-together-stream-label">
-                  <span>Host</span>
-                  <small>{hostPublisher ? "Live host feed" : "Waiting for host"}</small>
+                  <span>Combined Stream</span>
+                  <small>{hostPublisher ? "Live" : "Waiting for host"}</small>
                 </div>
                 <div className="stream-together-video">
                   <video ref={videoRef} autoPlay playsInline controls />
@@ -1791,7 +1857,7 @@ function StreamViewer({ sessionId, onBack }) {
                         <i className="fas fa-play-circle"></i>
                         <strong>{session?.title || "Stream Together"}</strong>
                         <p className="stream-together-muted">
-                          Press play when the host is live.
+                          Press play to watch the combined stream with host and co-hosts.
                         </p>
                       </div>
                     </div>
@@ -1801,10 +1867,16 @@ function StreamViewer({ sessionId, onBack }) {
 
               <div className="stream-together-stream-secondary">
                 <div className="stream-together-stream-label">
-                  <span>Co-hosts</span>
-                  <small>{coHosts.length} active</small>
+                  <span>Participants</span>
+                  <small>{coHosts.length + (hostPublisher ? 1 : 0)} active</small>
                 </div>
                 <div className="stream-together-cohost-list">
+                  {hostPublisher && (
+                    <div className="stream-together-cohost-item">
+                      <strong>Host</strong>
+                      <p className="stream-together-muted">Live now</p>
+                    </div>
+                  )}
                   {coHosts.length === 0 ? (
                     <div className="stream-together-muted">
                       No co-hosts are live yet.
@@ -1826,7 +1898,7 @@ function StreamViewer({ sessionId, onBack }) {
             <div className="stream-together-actions" style={{ marginTop: 18 }}>
               <button className="stream-together-button primary" onClick={play}>
                 <i className="fas fa-play"></i>
-                Play Stream
+                {isPlaying ? "Watching..." : "Play Combined Stream"}
               </button>
             </div>
             {error && <div className="stream-together-error">{error}</div>}
@@ -1837,15 +1909,17 @@ function StreamViewer({ sessionId, onBack }) {
             <p className="stream-together-muted">
               Session ID: <span className="stream-together-code">{sessionId}</span>
             </p>
+            <p className="stream-together-muted" style={{ marginTop: 8 }}>
+              Watching the combined stream with host and all co-hosts.
+            </p>
             <div className="stream-together-meta">
               <div className="stream-together-meta-item">
-                <span>Active publishers</span>
+                <span>Active participants</span>
                 <strong>{session?.publishers?.length || 0}</strong>
               </div>
               <div className="stream-together-meta-item">
                 <span>Status</span>
                 <strong>{session?.status || "loading"}</strong>
-
               </div>
             </div>
           </div>
