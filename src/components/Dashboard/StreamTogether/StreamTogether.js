@@ -227,7 +227,7 @@ function StreamTogetherHost({ onBack }) {
   const modalRef = useRef(null);
 
   const cohostLink = session
-    ? `${window.location.origin}/cohort-join/${session.sessionId}`
+    ? `${window.location.origin}/cohost-join/${session.sessionId}`
     : "";
   const viewerLink = session ? `${window.location.origin}/watch/${session.sessionId}` : "";
 
