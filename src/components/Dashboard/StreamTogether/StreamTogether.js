@@ -16,6 +16,7 @@ const STREAM_TOGETHER_HOST_STATE_KEY = "streammova_stream_together_host_state";
 const streamTogetherHostRuntime = {
   stream: null,
   publisher: null,
+  testPublisher: null,
   session: null,
   cameraActive: false,
   isLive: false,
@@ -174,6 +175,10 @@ async function playFromSrs(video, streamKey) {
   return player;
 }
 
+// =========================
+// STREAM TOGETHER MAIN
+// =========================
+
 function StreamTogether() {
   const navigate = useNavigate();
   const path = window.location.pathname;
@@ -183,7 +188,6 @@ function StreamTogether() {
       navigate(-1);
       return;
     }
-
     navigate("/dashboard");
   };
 
@@ -198,6 +202,10 @@ function StreamTogether() {
   return <StreamTogetherHost onBack={goBack} />;
 }
 
+// =========================
+// STREAM TOGETHER HOST
+// =========================
+
 function StreamTogetherHost({ onBack }) {
   const [title, setTitle] = useState("");
   const [session, setSession] = useState(null);
@@ -210,14 +218,16 @@ function StreamTogetherHost({ onBack }) {
   const [selectedChannelIds, setSelectedChannelIds] = useState([]);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
+  const [ffmpegStatus, setFfmpegStatus] = useState(""); // NEW: FFmpeg status feedback
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const publisherRef = useRef(null);
+  const testPublisherRef = useRef(null); // NEW: separate ref for test stream publisher
   const modalRef = useRef(null);
 
   const cohostLink = session
-    ? `${window.location.origin}/cohost-join/${session.sessionId}`
+    ? `${window.location.origin}/cohort-join/${session.sessionId}`
     : "";
   const viewerLink = session ? `${window.location.origin}/watch/${session.sessionId}` : "";
 
@@ -290,6 +300,7 @@ function StreamTogetherHost({ onBack }) {
     ) {
       streamRef.current = restoredStream;
       publisherRef.current = streamTogetherHostRuntime.publisher;
+      testPublisherRef.current = streamTogetherHostRuntime.testPublisher;
       setCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = restoredStream;
@@ -484,11 +495,14 @@ function StreamTogetherHost({ onBack }) {
   const stopLocalMedia = () => {
     publisherRef.current?.close?.();
     publisherRef.current = null;
+    testPublisherRef.current?.close?.();
+    testPublisherRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     saveHostRuntime({
       stream: null,
       publisher: null,
+      testPublisher: null,
       cameraActive: false,
       isLive: false,
     });
@@ -545,6 +559,118 @@ function StreamTogetherHost({ onBack }) {
     return created.session;
   };
 
+  // =========================
+  // START FFMPEG FOR DESTINATIONS
+  // =========================
+
+  const startFFmpegForDestinations = async () => {
+    const saved = readStoredChannels();
+    const platformsStarted = [];
+
+    for (const channel of selectedDestinations) {
+      try {
+        if (channel.platform === "twitch" && saved.twitchStreamKey) {
+          await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channelId: session?.sessionId || "streamtogether",
+              streamKey: saved.twitchStreamKey,
+            }),
+          });
+          platformsStarted.push("Twitch");
+        }
+
+        if (channel.platform === "youtube" && saved.youtubeAccessToken) {
+          await fetch(`${RAW_API_BASE}/api/youtube/live/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channelId: session?.sessionId || "streamtogether",
+              accessToken: saved.youtubeAccessToken,
+              refreshToken: saved.youtubeRefreshToken,
+              title: title || "Stream Together Live",
+              description: "Live from Stream Together",
+            }),
+          });
+          platformsStarted.push("YouTube");
+        }
+
+        if (channel.platform === "facebook") {
+          const pages = saved.facebookPages || [];
+          const selectedPageId = saved.selectedFacebookPageId;
+          const page = pages.find((p) => p.id === selectedPageId);
+
+          if (page?.access_token) {
+            await fetch(`${RAW_API_BASE}/api/facebook/live/start`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channelId: session?.sessionId || "streamtogether",
+                title: title || "Stream Together Live",
+                description: "Live from Stream Together",
+                pageId: page.id,
+                pageAccessToken: page.access_token,
+              }),
+            });
+            platformsStarted.push("Facebook");
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to start FFmpeg for ${channel.platform}:`, err);
+      }
+    }
+
+    if (platformsStarted.length > 0) {
+      setFfmpegStatus(`Streaming to ${platformsStarted.join(", ")}`);
+    }
+  };
+
+  // =========================
+  // STOP FFMPEG FOR DESTINATIONS
+  // =========================
+
+  const stopFFmpegForDestinations = async () => {
+    const stopPromises = [];
+
+    if (selectedDestinations.some((c) => c.platform === "twitch")) {
+      stopPromises.push(
+        fetch(`${RAW_API_BASE}/api/twitch/live/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId: session?.sessionId || "streamtogether" }),
+        }).catch(() => {})
+      );
+    }
+
+    if (selectedDestinations.some((c) => c.platform === "youtube")) {
+      stopPromises.push(
+        fetch(`${RAW_API_BASE}/api/youtube/live/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId: session?.sessionId || "streamtogether" }),
+        }).catch(() => {})
+      );
+    }
+
+    if (selectedDestinations.some((c) => c.platform === "facebook")) {
+      stopPromises.push(
+        fetch(`${RAW_API_BASE}/api/facebook/live/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId: session?.sessionId || "streamtogether" }),
+        }).catch(() => {})
+      );
+    }
+
+    await Promise.allSettled(stopPromises);
+    setFfmpegStatus("");
+  };
+
+  // =========================
+  // START STREAM (with dual publish)
+  // =========================
+
   const startStream = async () => {
     if (!title.trim()) {
       setError("Enter a session title first.");
@@ -553,6 +679,7 @@ function StreamTogetherHost({ onBack }) {
 
     setIsBusy(true);
     setError("");
+    setFfmpegStatus("");
 
     try {
       const stream = streamRef.current || (await activateCamera());
@@ -560,15 +687,31 @@ function StreamTogetherHost({ onBack }) {
       const hostStreamKey = `${currentSession.sessionId}-host`;
       let publishStatus = "publishing";
 
+      // 1. Publish to session stream (for co-hosts/viewers)
       try {
         const publisher = await publishToSrs(stream, hostStreamKey);
         publisherRef.current = publisher;
         saveHostRuntime({ publisher });
+        console.log("Published to session stream:", hostStreamKey);
       } catch (publishError) {
         publishStatus = "local-preview";
         console.warn("Host SRS publish failed:", publishError);
       }
 
+      // 2. Publish a CLONE to "test" stream (for FFmpeg → Twitch/YouTube/Facebook)
+      if (selectedDestinations.length > 0) {
+        try {
+          const testStream = stream.clone();
+          const testPublisher = await publishToSrs(testStream, "test");
+          testPublisherRef.current = testPublisher;
+          saveHostRuntime({ testPublisher });
+          console.log("Published clone to test stream for FFmpeg");
+        } catch (testPublishError) {
+          console.warn("Failed to publish clone to test stream:", testPublishError);
+        }
+      }
+
+      // 3. Register publisher with session
       await apiFetch(`/register-publisher/${currentSession.sessionId}`, {
         method: "POST",
         body: JSON.stringify({
@@ -579,6 +722,7 @@ function StreamTogetherHost({ onBack }) {
         }),
       });
 
+      // 4. Start session
       const started = await apiFetch(`/start-session/${currentSession.sessionId}`, {
         method: "POST",
       });
@@ -590,11 +734,18 @@ function StreamTogetherHost({ onBack }) {
         isLive: true,
         title: title.trim(),
       });
+
+      // 5. Start FFmpeg for selected destinations
+      if (selectedDestinations.length > 0) {
+        await startFFmpegForDestinations();
+      }
+
       if (publishStatus === "local-preview") {
         setError(
           "Session started locally, but SRS publishing failed. Co-hosts can still join; check SRS before going public."
         );
       }
+
       return started.session;
     } catch (err) {
       setError(err.message || "Failed to start Stream Together.");
@@ -606,9 +757,17 @@ function StreamTogetherHost({ onBack }) {
     }
   };
 
+  // =========================
+  // STOP STREAM
+  // =========================
+
   const stopStream = async () => {
     setIsBusy(true);
     setError("");
+
+    // Stop FFmpeg first
+    await stopFFmpegForDestinations();
+
     try {
       if (session?.sessionId) {
         await apiFetch(`/stop-session/${session.sessionId}`, { method: "POST" });
@@ -786,6 +945,12 @@ function StreamTogetherHost({ onBack }) {
               </div>
             </div>
 
+            {ffmpegStatus && (
+              <div className="stream-together-ffmpeg-status">
+                <i className="fas fa-satellite-dish"></i> {ffmpegStatus}
+              </div>
+            )}
+
             {error && <div className="stream-together-error">{error}</div>}
           </div>
 
@@ -936,6 +1101,10 @@ function StreamTogetherHost({ onBack }) {
     </div>
   );
 }
+
+// =========================
+// SHARED COMPONENTS
+// =========================
 
 function InviteLink({ label, value, onCopy }) {
   return (
