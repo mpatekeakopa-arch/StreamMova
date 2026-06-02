@@ -212,7 +212,6 @@ function StreamTogetherHost({ onBack }) {
         cohostPlayerRef.current?.close?.();
         cohostPlayerRef.current = await playFromSrs(cohostVideoRef.current, cohostPublisher.streamKey);
         saveHostRuntime({ cohostPlayer: cohostPlayerRef.current });
-        console.log("Playing co-host stream:", cohostPublisher.streamKey);
       } catch (err) {
         console.warn("Failed to play co-host stream:", err);
       }
@@ -239,11 +238,71 @@ function StreamTogetherHost({ onBack }) {
       if (hostVideoRef.current) { hostVideoRef.current.srcObject = restoredStream; hostVideoRef.current.play().catch(() => {}); }
     }
     loadConnectedChannels();
-    // OAuth handling (abbreviated - same as before)
+
     const params = new URLSearchParams(window.location.search);
     const oauthError = params.get("error");
-    if (oauthError) { setError(formatOAuthError(oauthError)); writeOAuthStatus("error", formatOAuthError(oauthError)); window.history.replaceState({}, document.title, "/stream-together"); }
-    // ... (keep existing OAuth payload handling - same as your current code)
+    const hasOauthResult = oauthError || params.has("facebook_oauth") || params.has("twitch_oauth") || params.has("youtube_oauth");
+
+    if (oauthError) {
+      const message = formatOAuthError(oauthError);
+      setError(message);
+      writeOAuthStatus("error", message);
+      window.history.replaceState({}, document.title, "/stream-together");
+    }
+
+    const facebookPayload = params.get("facebook_oauth");
+    const twitchPayload = params.get("twitch_oauth");
+    const youtubePayload = params.get("youtube_oauth");
+
+    try {
+      if (facebookPayload) {
+        const decoded = decodeOAuthPayload(facebookPayload);
+        const pages = decoded?.pages?.data || [];
+        if (!Array.isArray(pages) || pages.length === 0) {
+          setError("Facebook connected, but no Pages were found.");
+        } else {
+          writeStoredChannel(
+            { id: "facebook-connected", platform: "facebook", name: "Facebook", icon: "fab fa-facebook", color: "#1877F2", logo: "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg", status: "connected", pageName: pages[0].name, addedAt: new Date().toISOString() },
+            { facebookPages: pages, selectedFacebookPageId: pages[0].id, facebookConnectStatus: `Facebook connected. ${pages.length} page(s) found.` }
+          );
+          writeOAuthStatus("success", "Facebook channel connected.");
+          loadConnectedChannels();
+        }
+        window.history.replaceState({}, document.title, "/stream-together");
+      }
+
+      if (twitchPayload) {
+        const decoded = decodeOAuthPayload(twitchPayload);
+        writeStoredChannel(
+          { id: `twitch-${decoded.user.id}`, platform: "twitch", name: "Twitch", displayName: decoded.user.display_name, icon: "fab fa-twitch", color: "#9146FF", logo: "https://cdn4.iconfinder.com/data/icons/social-media-logos-8/512/Twitch-512.png", status: "connected", streamKey: decoded.stream_key, rtmpUrl: decoded.rtmp_url, addedAt: new Date().toISOString() },
+          { twitchConnected: true, twitchUsername: decoded.user.display_name, twitchStreamKey: decoded.stream_key, twitchRtmpUrl: decoded.rtmp_url }
+        );
+        writeOAuthStatus("success", "Twitch channel connected.");
+        loadConnectedChannels();
+        window.history.replaceState({}, document.title, "/stream-together");
+      }
+
+      if (youtubePayload) {
+        const decoded = decodeOAuthPayload(youtubePayload);
+        writeStoredChannel(
+          { id: `youtube-${decoded.user.id}`, platform: "youtube", name: "YouTube", displayName: decoded.user.title, icon: "fab fa-youtube", color: "#FF0000", logo: "https://cdn2.iconfinder.com/data/icons/social-media-2285/512/1_Youtube_colored_svg-512.png", status: "connected", streamKey: decoded.stream_key || "", rtmpUrl: decoded.rtmp_url || "", addedAt: new Date().toISOString() },
+          { youtubeConnected: true, youtubeChannelName: decoded.user.title, youtubeStreamKey: decoded.stream_key || "", youtubeRtmpUrl: decoded.rtmp_url || "", youtubeAccessToken: decoded.access_token || "", youtubeRefreshToken: decoded.refresh_token || "" }
+        );
+        writeOAuthStatus("success", "YouTube channel connected.");
+        loadConnectedChannels();
+        window.history.replaceState({}, document.title, "/stream-together");
+      }
+    } catch (err) {
+      const message = "Could not read the channel connection result. Please try again.";
+      setError(message);
+      writeOAuthStatus("error", message);
+      console.error("OAuth payload handling failed:", err);
+    }
+
+    if (window.opener && hasOauthResult) {
+      setTimeout(() => window.close(), 800);
+    }
+
     const handleStorage = (event) => {
       if (event.key === CHANNEL_STORAGE_KEY) loadConnectedChannels();
       if (event.key === OAUTH_STATUS_KEY && event.newValue) {
@@ -286,7 +345,6 @@ function StreamTogetherHost({ onBack }) {
   };
 
   const createInviteSession = async () => {
-    // ... (keep existing - same as your current code)
     if (session?.sessionId) {
       try { const existing = await apiFetch(`/session/${session.sessionId}`); setSession(existing.session); saveHostRuntime({ session: existing.session, title: title.trim() || existing.session.title || "" }); return existing.session; }
       catch (err) { if (!isStreamTogetherSessionNotFound(err)) throw err; setSession(null); setIsLive(false); setShowInvite(false); saveHostRuntime({ session: null, isLive: false, title: title.trim() }); }
@@ -330,6 +388,7 @@ function StreamTogetherHost({ onBack }) {
       const started = await apiFetch(`/start-session/${currentSession.sessionId}`, { method: "POST" });
       setSession(started.session); setIsLive(true); saveHostRuntime({ session: started.session, isLive: true, title: title.trim() });
       if (selectedDestinations.length > 0) await startFFmpegForDestinations();
+      if (publishStatus === "local-preview") setError("Session started locally, but SRS publishing failed. Co-hosts can still join; check SRS before going public.");
       return started.session;
     } catch (err) { setError(err.message); setIsLive(false); stopLocalMedia(); return null; }
     finally { setIsBusy(false); }
@@ -343,10 +402,27 @@ function StreamTogetherHost({ onBack }) {
   };
 
   const openInvite = async () => { if (!title.trim()) { setError("Enter a session title first."); return; } setIsBusy(true); setError(""); try { const s = await createInviteSession(); if (s) setShowInvite(true); } catch (err) { setError(err.message); } finally { setIsBusy(false); } };
-  const copy = async (value, label) => { try { await navigator.clipboard.writeText(value); setCopied(`${label} copied`); } catch { setCopied(`${label} could not be copied. Select and copy manually.`); } setTimeout(() => setCopied(""), 1800); };
+  
+  const copy = async (value, label) => { 
+    try { await navigator.clipboard.writeText(value); setCopied(`${label} copied`); } catch { setCopied(`${label} could not be copied. Select and copy manually.`); } 
+    setTimeout(() => setCopied(""), 1800); 
+  };
+  
   const toggleDestination = (id) => { const sid = String(id); setSelectedChannelIds((prev) => prev.includes(sid) ? prev.filter((i) => i !== sid) : [...prev, sid]); };
   const openChannelModal = () => { loadConnectedChannels(); setShowChannelModal(true); };
   const closeChannelModal = () => { setShowChannelModal(false); loadConnectedChannels(); };
+
+  const startOAuth = (platform) => {
+    const url = `${RAW_API_BASE.replace(/\/+$/, "")}/api/oauth/${platform}/start?returnTo=${encodeURIComponent("/stream-together")}`;
+    const popupWidth = 560;
+    const popupHeight = 720;
+    const left = Math.max(0, window.screenX + (window.outerWidth - popupWidth) / 2);
+    const top = Math.max(0, window.screenY + (window.outerHeight - popupHeight) / 2);
+    const popup = window.open(url, "streammova-channel-connect", `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top}`);
+    if (!popup) { setError("Your browser blocked the channel connection popup. Allow popups for this site, then try again."); return; }
+    popup.focus();
+    setShowChannelModal(false);
+  };
 
   return (
     <div className="stream-together-page">
@@ -354,7 +430,6 @@ function StreamTogetherHost({ onBack }) {
         <StreamTogetherHeader isLive={isLive} onBack={onBack} />
         <div className="stream-together-grid">
           <div className="stream-together-card">
-            {/* SIDE-BY-SIDE VIDEO GRID */}
             <div className="stream-together-video-grid">
               <div className="stream-together-video host-video">
                 <video ref={hostVideoRef} autoPlay muted playsInline />
@@ -391,7 +466,6 @@ function StreamTogetherHost({ onBack }) {
             {error && <div className="stream-together-error">{error}</div>}
           </div>
 
-          {/* Panel - same as before */}
           <div className="stream-together-panel">
             <h2>Session</h2>
             <div className="stream-together-meta">
@@ -425,7 +499,6 @@ function StreamTogetherHost({ onBack }) {
           </div>
         </div>
       </div>
-      {/* Invite Modal - same as before */}
       {showInvite && session && (
         <div className="stream-together-modal" onClick={() => setShowInvite(false)}>
           <div className="stream-together-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -437,12 +510,23 @@ function StreamTogetherHost({ onBack }) {
           </div>
         </div>
       )}
-      <ChannelModal showChannelModal={showChannelModal} modalRef={modalRef} handleCloseChannelModal={closeChannelModal} handleFacebookOAuth={() => startOAuth("facebook")} handleTwitchOAuth={() => startOAuth("twitch")} handleYouTubeOAuth={() => startOAuth("youtube")} facebookConnectStatus="" twitchConnected={connectedChannels.some(c => c.platform === "twitch")} twitchUsername={connectedChannels.find(c => c.platform === "twitch")?.displayName || ""} youtubeConnected={connectedChannels.some(c => c.platform === "youtube")} youtubeChannelName={connectedChannels.find(c => c.platform === "youtube")?.displayName || ""} />
+      <ChannelModal
+        showChannelModal={showChannelModal}
+        modalRef={modalRef}
+        handleCloseChannelModal={closeChannelModal}
+        handleFacebookOAuth={() => startOAuth("facebook")}
+        handleTwitchOAuth={() => startOAuth("twitch")}
+        handleYouTubeOAuth={() => startOAuth("youtube")}
+        facebookConnectStatus=""
+        twitchConnected={connectedChannels.some(c => c.platform === "twitch")}
+        twitchUsername={connectedChannels.find(c => c.platform === "twitch")?.displayName || ""}
+        youtubeConnected={connectedChannels.some(c => c.platform === "youtube")}
+        youtubeChannelName={connectedChannels.find(c => c.platform === "youtube")?.displayName || ""}
+      />
     </div>
   );
 }
 
-// Abbreviated sub-components (keep your existing ones)
 function InviteLink({ label, value, onCopy }) {
   return (
     <div className="stream-together-field" style={{ marginBottom: 16 }}>
@@ -467,15 +551,149 @@ function StreamTogetherHeader({ isLive, onBack }) {
   );
 }
 
-// Keep CoHostJoin and StreamViewer exactly as they were - no changes needed
 function CoHostJoin({ sessionId, onBack }) {
-  // ... (your existing code - unchanged)
-  return null; // placeholder - use your existing code
+  const [session, setSession] = useState(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [coHostUserId, setCoHostUserId] = useState("");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const publisherRef = useRef(null);
+
+  useEffect(() => {
+    apiFetch(`/session/${sessionId}`)
+      .then((data) => setSession(data.session))
+      .catch((err) => setError(err.message || "Session not found."));
+    return () => {
+      publisherRef.current?.close?.();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, [sessionId]);
+
+  const activateCamera = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    streamRef.current = stream;
+    if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play().catch(() => {}); }
+    setCameraActive(true);
+    return stream;
+  };
+
+  const join = async () => {
+    setIsBusy(true); setError("");
+    try {
+      const stream = streamRef.current || (await activateCamera());
+      const userId = `cohost-${Date.now()}`;
+      const streamKey = `${sessionId}-${userId}`;
+      await apiFetch(`/join-session/${sessionId}`, { method: "POST", body: JSON.stringify({ userId }) });
+      let publishStatus = "publishing";
+      try { publisherRef.current = await publishToSrs(stream, streamKey); } catch (e) { publishStatus = "local-preview"; }
+      const data = await apiFetch(`/register-publisher/${sessionId}`, { method: "POST", body: JSON.stringify({ userId, role: "cohost", streamKey, publishStatus }) });
+      setSession(data.session); setCoHostUserId(userId); setJoined(true);
+      if (publishStatus === "local-preview") setError("Joined the session, but SRS publishing failed. The host can see you joined; check SRS before going public.");
+    } catch (err) { setError(err.message || "Failed to join as co-host."); leaveLocal(); }
+    finally { setIsBusy(false); }
+  };
+
+  const leaveLocal = async () => {
+    publisherRef.current?.close?.(); publisherRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraActive(false); setCoHostUserId(""); setJoined(false);
+  };
+
+  const leave = async () => {
+    try { await apiFetch(`/leave-session/${sessionId}`, { method: "POST", body: JSON.stringify({ userId: coHostUserId }) }); } catch {}
+    leaveLocal();
+  };
+
+  return (
+    <div className="stream-together-page">
+      <div className="stream-together-shell">
+        <StreamTogetherHeader isLive={joined} onBack={onBack} />
+        <div className="stream-together-grid">
+          <div className="stream-together-card">
+            <div className="stream-together-video">
+              <video ref={videoRef} autoPlay muted playsInline />
+              {!cameraActive && <div className="stream-together-placeholder"><div><i className="fas fa-video-slash"></i><strong>Camera is off</strong><p className="stream-together-muted">Join when you are ready to publish your camera.</p></div></div>}
+              {joined && <div className="stream-together-live-badge"><span className="stream-together-dot" />CO-HOST LIVE</div>}
+            </div>
+            <div className="stream-together-actions" style={{ marginTop: 18 }}>
+              {!joined ? <button className="stream-together-button primary" onClick={join} disabled={isBusy || !session}><i className="fas fa-user-plus"></i>{isBusy ? "Joining..." : "Join as Co-host"}</button> : <button className="stream-together-button danger" onClick={leave}><i className="fas fa-sign-out-alt"></i>Leave</button>}
+            </div>
+            {error && <div className="stream-together-error">{error}</div>}
+          </div>
+          <div className="stream-together-panel">
+            <h2>{session?.title || "Co-host Invite"}</h2>
+            <p className="stream-together-muted">Session ID: <span className="stream-together-code">{sessionId}</span></p>
+            <p className="stream-together-muted">Your video will be registered as a co-host publisher for the host.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function StreamViewer({ sessionId, onBack }) {
-  // ... (your existing code - unchanged)
-  return null; // placeholder - use your existing code
+  const [session, setSession] = useState(null);
+  const [error, setError] = useState("");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef(null);
+  const playerRef = useRef(null);
+
+  const hostPublisher = useMemo(() => session?.publishers?.find((p) => p.role === "host"), [session]);
+  const coHosts = useMemo(() => session?.publishers?.filter((p) => p.role === "cohost") || [], [session]);
+
+  useEffect(() => {
+    apiFetch(`/session/${sessionId}`).then((data) => setSession(data.session)).catch((err) => setError(err.message || "Stream not found."));
+    return () => playerRef.current?.close?.();
+  }, [sessionId]);
+
+  const play = async () => {
+    if (!hostPublisher?.streamKey || !videoRef.current) { setError("The host stream is not live yet."); return; }
+    try { setError(""); playerRef.current?.close?.(); playerRef.current = await playFromSrs(videoRef.current, hostPublisher.streamKey); setIsPlaying(true); } catch (err) { setError(err.message || "Failed to play stream."); }
+  };
+
+  return (
+    <div className="stream-together-page">
+      <div className="stream-together-shell">
+        <StreamTogetherHeader isLive={session?.status === "live"} onBack={onBack} />
+        <div className="stream-together-grid stream-together-viewer-grid">
+          <div className="stream-together-card">
+            <div className="stream-together-stream-grid">
+              <div className="stream-together-stream-primary">
+                <div className="stream-together-stream-label"><span>Host</span><small>{hostPublisher ? "Live host feed" : "Waiting for host"}</small></div>
+                <div className="stream-together-video">
+                  <video ref={videoRef} autoPlay playsInline controls />
+                  {!isPlaying && <div className="stream-together-placeholder"><div><i className="fas fa-play-circle"></i><strong>{session?.title || "Stream Together"}</strong><p className="stream-together-muted">Press play when the host is live.</p></div></div>}
+                </div>
+              </div>
+              <div className="stream-together-stream-secondary">
+                <div className="stream-together-stream-label"><span>Co-hosts</span><small>{coHosts.length} active</small></div>
+                <div className="stream-together-cohost-list">
+                  {coHosts.length === 0 ? <div className="stream-together-muted">No co-hosts are live yet.</div> : coHosts.map((p) => (<div className="stream-together-cohost-item" key={p.streamKey}><strong>{p.userId || p.streamKey}</strong><p className="stream-together-muted">{p.publishStatus === "publishing" ? "Live now" : "Preview mode"}</p></div>))}
+                </div>
+              </div>
+            </div>
+            <div className="stream-together-actions" style={{ marginTop: 18 }}><button className="stream-together-button primary" onClick={play}><i className="fas fa-play"></i>Play Stream</button></div>
+            {error && <div className="stream-together-error">{error}</div>}
+          </div>
+          <div className="stream-together-panel">
+            <h2>Now Watching</h2>
+            <p className="stream-together-muted">Session ID: <span className="stream-together-code">{sessionId}</span></p>
+            <div className="stream-together-meta">
+              <div className="stream-together-meta-item"><span>Active publishers</span><strong>{session?.publishers?.length || 0}</strong></div>
+              <div className="stream-together-meta-item"><span>Status</span><strong>{session?.status || "loading"}</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default StreamTogether;
