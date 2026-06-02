@@ -188,46 +188,86 @@ class StreamCompositor {
     this.videos = [];
     this.animationId = null;
     this.outputStream = null;
-    this.layout = 'side-by-side'; // 'side-by-side' or 'pip' (picture-in-picture)
+    this.audioContext = null;
+    this.audioDestination = null;
+    this.audioSources = [];
+    this.layout = 'side-by-side';
+    this.isRunning = false;
   }
 
   addVideo(video, label = '') {
+    if (this.videos.find(v => v.video === video)) return;
+    
     this.videos.push({ video, label });
-    this._draw();
+    console.log(`Compositor: Added ${label}. Total videos: ${this.videos.length}`);
+    
+    this._addAudioSource(video);
+    
+    if (!this.isRunning) {
+      this._draw();
+      this.isRunning = true;
+    }
   }
 
   removeVideo(video) {
     this.videos = this.videos.filter(v => v.video !== video);
-    this._draw();
+    this._removeAudioSource(video);
+    console.log(`Compositor: Removed video. Remaining: ${this.videos.length}`);
   }
 
   setLayout(layout) {
     this.layout = layout;
-    this._draw();
+  }
+
+  _addAudioSource(video) {
+    if (!video.srcObject) return;
+    
+    const audioTracks = video.srcObject.getAudioTracks();
+    if (audioTracks.length === 0) return;
+    
+    try {
+      if (!this.audioContext) {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        this.audioDestination = this.audioContext.createMediaStreamDestination();
+      }
+      
+      const audioStream = new MediaStream(audioTracks);
+      const audioSource = this.audioContext.createMediaStreamSource(audioStream);
+      audioSource.connect(this.audioDestination);
+      this.audioSources.push({ source: audioSource, stream: audioStream, video });
+      console.log('Compositor: Added audio source');
+    } catch (err) {
+      console.warn('Compositor: Failed to add audio:', err);
+    }
+  }
+
+  _removeAudioSource(video) {
+    const index = this.audioSources.findIndex(s => s.video === video);
+    if (index >= 0) {
+      try {
+        this.audioSources[index].source.disconnect();
+      } catch (e) {}
+      this.audioSources.splice(index, 1);
+    }
   }
 
   _draw() {
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
-    }
-
     const drawFrame = () => {
+      if (!this.isRunning) return;
+
       this.ctx.fillStyle = '#05060a';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
       const numVideos = this.videos.length;
 
       if (numVideos === 0) {
-        // Draw placeholder
         this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
         this.ctx.font = '24px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.fillText('Waiting for streams...', this.canvas.width / 2, this.canvas.height / 2);
       } else if (numVideos === 1) {
-        // Single stream - full canvas
         this._drawVideoFrame(this.videos[0], 0, 0, this.canvas.width, this.canvas.height);
       } else {
-        // Multiple streams - side by side
         if (this.layout === 'side-by-side') {
           this._drawSideBySide();
         } else {
@@ -256,12 +296,12 @@ class StreamCompositor {
       
       this._drawVideoFrame(videoObj, x, y, cellWidth, cellHeight);
 
-      // Draw label
       if (videoObj.label) {
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        this.ctx.fillRect(x + 10, y + 10, this.ctx.measureText(videoObj.label).width + 20, 30);
-        this.ctx.fillStyle = '#fff';
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         this.ctx.font = '14px Arial';
+        const textWidth = this.ctx.measureText(videoObj.label).width;
+        this.ctx.fillRect(x + 10, y + 10, textWidth + 20, 30);
+        this.ctx.fillStyle = '#fff';
         this.ctx.textAlign = 'left';
         this.ctx.fillText(videoObj.label, x + 20, y + 30);
       }
@@ -269,10 +309,8 @@ class StreamCompositor {
   }
 
   _drawPIP() {
-    // Main video (host) takes full canvas
     this._drawVideoFrame(this.videos[0], 0, 0, this.canvas.width, this.canvas.height);
 
-    // Additional videos as PIP
     const pipWidth = this.canvas.width * 0.25;
     const pipHeight = this.canvas.height * 0.25;
     const padding = 20;
@@ -281,7 +319,6 @@ class StreamCompositor {
       const pipX = this.canvas.width - pipWidth - padding;
       const pipY = padding + (i - 1) * (pipHeight + padding);
       
-      // PIP border
       this.ctx.strokeStyle = '#9146FF';
       this.ctx.lineWidth = 2;
       this.ctx.strokeRect(pipX - 2, pipY - 2, pipWidth + 4, pipHeight + 4);
@@ -294,7 +331,6 @@ class StreamCompositor {
     const video = videoObj.video;
     if (!video || video.readyState < 2) return;
 
-    // Mirror the video
     this.ctx.save();
     this.ctx.translate(x + width, y);
     this.ctx.scale(-1, 1);
@@ -303,21 +339,40 @@ class StreamCompositor {
   }
 
   getOutputStream() {
-    if (!this.outputStream) {
-      this.outputStream = this.canvas.captureStream(30); // 30 FPS
-      
-      // Also capture audio from the first video (host)
-      if (this.videos.length > 0) {
-        const audioTracks = this.videos[0].video.srcObject?.getAudioTracks();
-        if (audioTracks && audioTracks.length > 0) {
-          this.outputStream.addTrack(audioTracks[0].clone());
-        }
+    if (this.outputStream) {
+      return this.outputStream;
+    }
+
+    const canvasStream = this.canvas.captureStream(30);
+    const videoTrack = canvasStream.getVideoTracks()[0];
+
+    this.outputStream = new MediaStream();
+    this.outputStream.addTrack(videoTrack);
+
+    if (this.audioDestination) {
+      this.audioDestination.stream.getAudioTracks().forEach(track => {
+        this.outputStream.addTrack(track);
+      });
+    } else {
+      const firstVideo = this.videos[0]?.video;
+      if (firstVideo?.srcObject) {
+        const audioTracks = firstVideo.srcObject.getAudioTracks();
+        audioTracks.forEach(track => {
+          this.outputStream.addTrack(track.clone());
+        });
       }
     }
+
+    console.log('Compositor output stream ready:', {
+      videoTracks: this.outputStream.getVideoTracks().length,
+      audioTracks: this.outputStream.getAudioTracks().length
+    });
+
     return this.outputStream;
   }
 
   stop() {
+    this.isRunning = false;
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
@@ -326,6 +381,15 @@ class StreamCompositor {
       this.outputStream.getTracks().forEach(track => track.stop());
       this.outputStream = null;
     }
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+      this.audioDestination = null;
+    }
+    this.audioSources.forEach(s => {
+      try { s.source.disconnect(); } catch (e) {}
+    });
+    this.audioSources = [];
     this.videos = [];
   }
 }
@@ -358,7 +422,7 @@ function StreamTogether() {
 }
 
 // =========================
-// STREAM TOGETHER HOST - WITH COMPOSITED OUTPUT
+// STREAM TOGETHER HOST
 // =========================
 
 function StreamTogetherHost({ onBack }) {
@@ -374,15 +438,17 @@ function StreamTogetherHost({ onBack }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const [ffmpegStatus, setFfmpegStatus] = useState("");
+  const [layoutMode, setLayoutMode] = useState("side-by-side");
 
   const videoRef = useRef(null);
-  const canvasRef = useRef(null); // Canvas for compositing
+  const canvasRef = useRef(null);
+  const previewCanvasRef = useRef(null);
   const streamRef = useRef(null);
   const publisherRef = useRef(null);
   const testPublisherRef = useRef(null);
   const compositorRef = useRef(null);
-  const cohostVideoRefs = useRef({}); // Store video elements for co-hosts
-  const cohostPlayersRef = useRef({}); // Store SRS players for co-hosts
+  const cohostVideoRefs = useRef({});
+  const cohostPlayersRef = useRef({});
   const modalRef = useRef(null);
 
   const cohostLink = session
@@ -430,14 +496,12 @@ function StreamTogetherHost({ onBack }) {
     }
   };
 
-  // Play co-host streams from SRS
   const playCoHostStream = async (publisher) => {
     if (!cohostVideoRefs.current[publisher.streamKey]) {
-      // Create a hidden video element for the co-host
       const video = document.createElement('video');
       video.autoplay = true;
       video.playsInline = true;
-      video.muted = true; // Must be muted for autoplay
+      video.muted = true;
       video.style.display = 'none';
       document.body.appendChild(video);
       cohostVideoRefs.current[publisher.streamKey] = video;
@@ -446,18 +510,18 @@ function StreamTogetherHost({ onBack }) {
         const player = await playFromSrs(video, publisher.streamKey);
         cohostPlayersRef.current[publisher.streamKey] = player;
         
-        // Add to compositor
         if (compositorRef.current) {
-          const label = publisher.role === 'host' ? 'Host' : `Co-host`;
+          const label = `Co-host ${Object.keys(cohostVideoRefs.current).length}`;
           compositorRef.current.addVideo(video, label);
         }
+        
+        console.log(`Playing co-host stream: ${publisher.streamKey}`);
       } catch (err) {
         console.warn(`Failed to play co-host stream: ${publisher.streamKey}`, err);
       }
     }
   };
 
-  // Setup compositor with canvas
   const setupCompositor = () => {
     if (!canvasRef.current) return;
     
@@ -465,16 +529,37 @@ function StreamTogetherHost({ onBack }) {
       compositorRef.current = new StreamCompositor(canvasRef.current, 1280, 720);
     }
 
-    // Add host video
-    if (videoRef.current) {
+    if (videoRef.current && videoRef.current.srcObject) {
       compositorRef.current.addVideo(videoRef.current, 'Host');
     }
 
-    // Add existing co-host videos
-    Object.values(cohostVideoRefs.current).forEach(video => {
-      compositorRef.current.addVideo(video, 'Co-host');
+    Object.entries(cohostVideoRefs.current).forEach(([key, video]) => {
+      if (video.srcObject) {
+        compositorRef.current.addVideo(video, 'Co-host');
+      }
     });
   };
+
+  // Preview canvas renderer
+  useEffect(() => {
+    if (!compositorRef.current || !previewCanvasRef.current) return;
+    
+    let animId;
+    const renderPreview = () => {
+      if (compositorRef.current && previewCanvasRef.current) {
+        const ctx = previewCanvasRef.current.getContext('2d');
+        previewCanvasRef.current.width = compositorRef.current.canvas.width;
+        previewCanvasRef.current.height = compositorRef.current.canvas.height;
+        ctx.drawImage(compositorRef.current.canvas, 0, 0);
+      }
+      animId = requestAnimationFrame(renderPreview);
+    };
+    renderPreview();
+    
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [isLive, compositorRef.current]);
 
   useEffect(() => {
     const stored = (() => {
@@ -655,15 +740,14 @@ function StreamTogetherHost({ onBack }) {
 
     return () => {
       window.removeEventListener("storage", handleStorage);
-      // Cleanup co-host videos
       Object.values(cohostVideoRefs.current).forEach(v => {
+        v.srcObject?.getTracks().forEach(t => t.stop());
         v.remove();
       });
       cohostVideoRefs.current = {};
     };
   }, []);
 
-  // Poll for new co-hosts and play their streams
   useEffect(() => {
     if (!isLive || !session?.sessionId) return;
 
@@ -672,7 +756,6 @@ function StreamTogetherHost({ onBack }) {
         const data = await apiFetch(`/session/${session.sessionId}`);
         setSession(data.session);
         
-        // Auto-play new co-host streams
         const cohostPublishers = data.session?.publishers?.filter(p => p.role === 'cohost') || [];
         for (const publisher of cohostPublishers) {
           await playCoHostStream(publisher);
@@ -707,7 +790,6 @@ function StreamTogetherHost({ onBack }) {
     }
     setCameraActive(true);
     
-    // Add to compositor
     if (compositorRef.current) {
       compositorRef.current.addVideo(videoRef.current, 'Host');
     }
@@ -716,24 +798,26 @@ function StreamTogetherHost({ onBack }) {
   };
 
   const stopLocalMedia = () => {
-    // Stop compositor
     compositorRef.current?.stop();
     compositorRef.current = null;
     
-    // Stop SRS publishers
     publisherRef.current?.close?.();
     publisherRef.current = null;
-    testPublisherRef.current?.close?.();
-    testPublisherRef.current = null;
     
-    // Stop host stream
+    if (testPublisherRef.current) {
+      testPublisherRef.current.close();
+      testPublisherRef.current = null;
+    }
+    
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     
-    // Stop co-host streams
     Object.values(cohostPlayersRef.current).forEach(player => player?.close?.());
     cohostPlayersRef.current = {};
-    Object.values(cohostVideoRefs.current).forEach(v => v.remove());
+    Object.values(cohostVideoRefs.current).forEach(v => {
+      v.srcObject?.getTracks().forEach(t => t.stop());
+      v.remove();
+    });
     cohostVideoRefs.current = {};
     
     saveHostRuntime({
@@ -913,33 +997,55 @@ function StreamTogetherHost({ onBack }) {
       const hostStreamKey = `${currentSession.sessionId}-host`;
       let publishStatus = "publishing";
 
-      // Setup compositor
       setupCompositor();
 
-      // Publish host camera to session (for co-hosts to see)
+      // 1. Publish RAW HOST stream to session (for co-hosts to see individually)
       try {
         const publisher = await publishToSrs(stream, hostStreamKey);
         publisherRef.current = publisher;
         saveHostRuntime({ publisher });
-        console.log("Published host stream:", hostStreamKey);
+        console.log("Published raw host stream for co-hosts:", hostStreamKey);
       } catch (publishError) {
         publishStatus = "local-preview";
         console.warn("Host SRS publish failed:", publishError);
       }
 
-      // Publish COMPOSITED stream to "test" stream for FFmpeg
+      // 2. Publish COMPOSITED stream (host + co-hosts) to "test" for FFmpeg
       if (selectedDestinations.length > 0) {
         try {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
           const compositedStream = compositorRef.current.getOutputStream();
+          
+          if (stream.getAudioTracks().length > 0 && compositedStream.getAudioTracks().length === 0) {
+            stream.getAudioTracks().forEach(track => {
+              compositedStream.addTrack(track.clone());
+            });
+          }
+          
+          if (testPublisherRef.current) {
+            testPublisherRef.current.close();
+          }
+          
           const testPublisher = await publishToSrs(compositedStream, "test");
           testPublisherRef.current = testPublisher;
           saveHostRuntime({ testPublisher });
-          console.log("Published composited stream to test for FFmpeg");
+          console.log("Published COMPOSITED stream to 'test' for FFmpeg");
+          setFfmpegStatus("Composited stream ready for external platforms");
         } catch (testPublishError) {
-          console.warn("Failed to publish composited stream:", testPublishError);
+          console.error("Failed to publish composited stream:", testPublishError);
+          try {
+            const fallbackStream = stream.clone();
+            const testPublisher = await publishToSrs(fallbackStream, "test");
+            testPublisherRef.current = testPublisher;
+            console.warn("Fallback: Publishing raw host stream to test");
+          } catch (fallbackError) {
+            console.error("Even fallback publish failed:", fallbackError);
+          }
         }
       }
 
+      // 3. Register host publisher with session
       await apiFetch(`/register-publisher/${currentSession.sessionId}`, {
         method: "POST",
         body: JSON.stringify({
@@ -950,6 +1056,7 @@ function StreamTogetherHost({ onBack }) {
         }),
       });
 
+      // 4. Start session
       const started = await apiFetch(`/start-session/${currentSession.sessionId}`, {
         method: "POST",
       });
@@ -962,6 +1069,7 @@ function StreamTogetherHost({ onBack }) {
         title: title.trim(),
       });
 
+      // 5. Start FFmpeg for selected destinations
       if (selectedDestinations.length > 0) {
         await startFFmpegForDestinations();
       }
@@ -1131,25 +1239,47 @@ function StreamTogetherHost({ onBack }) {
               )}
             </div>
 
-            {/* Show composited preview when live */}
-            {isLive && compositorRef.current && (
+            {/* Preview of composited stream */}
+            {isLive && (
               <div style={{ marginTop: 16 }}>
-                <h3 style={{ marginBottom: 8 }}>Combined Stream Preview (Sent to platforms)</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <h3 style={{ margin: 0 }}>Combined Stream (sent to platforms)</h3>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="stream-together-button"
+                      onClick={() => {
+                        setLayoutMode("side-by-side");
+                        compositorRef.current?.setLayout("side-by-side");
+                      }}
+                      style={{ 
+                        padding: '4px 12px', 
+                        fontSize: 12, 
+                        minHeight: 30,
+                        background: layoutMode === 'side-by-side' ? 'rgba(106, 17, 203, 0.5)' : undefined 
+                      }}
+                    >
+                      <i className="fas fa-columns"></i> Side by Side
+                    </button>
+                    <button
+                      className="stream-together-button"
+                      onClick={() => {
+                        setLayoutMode("pip");
+                        compositorRef.current?.setLayout("pip");
+                      }}
+                      style={{ 
+                        padding: '4px 12px', 
+                        fontSize: 12, 
+                        minHeight: 30,
+                        background: layoutMode === 'pip' ? 'rgba(106, 17, 203, 0.5)' : undefined
+                      }}
+                    >
+                      <i className="fas fa-window-restore"></i> PIP
+                    </button>
+                  </div>
+                </div>
                 <div className="stream-together-video" style={{ maxHeight: 360 }}>
                   <canvas 
-                    ref={(el) => {
-                      if (el && compositorRef.current) {
-                        // Mirror the compositor canvas to this preview canvas
-                        const drawPreview = () => {
-                          const ctx = el.getContext('2d');
-                          el.width = compositorRef.current.canvas.width;
-                          el.height = compositorRef.current.canvas.height;
-                          ctx.drawImage(compositorRef.current.canvas, 0, 0);
-                          requestAnimationFrame(drawPreview);
-                        };
-                        drawPreview();
-                      }
-                    }}
+                    ref={previewCanvasRef}
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
                 </div>
@@ -1357,7 +1487,7 @@ function StreamTogetherHost({ onBack }) {
 }
 
 // =========================
-// SHARED COMPONENTS (Keep existing)
+// SHARED COMPONENTS
 // =========================
 
 function InviteLink({ label, value, onCopy }) {
@@ -1403,7 +1533,6 @@ function StreamTogetherHeader({ isLive, onBack }) {
   );
 }
 
-// Keep existing CoHostJoin and StreamViewer components unchanged
 function CoHostJoin({ sessionId, onBack }) {
   const [session, setSession] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
