@@ -1,18 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import "./StreamTogether.css";
 import ChannelModal from "../ChannelModal/ChannelModal";
 
-const RAW_API_BASE =
-  process.env.REACT_APP_API_BASE_URL || "https://api.streammova.xyz";
+// =========================
+// CONSTANTS & CONFIG
+// =========================
+const RAW_API_BASE = process.env.REACT_APP_API_BASE_URL || "https://api.streammova.xyz";
 const CHANNEL_STORAGE_KEY = "streammova_connected_channels";
 const OAUTH_STATUS_KEY = "streammova_channel_oauth_status";
 const API_BASE = RAW_API_BASE.endsWith("/api/stream-together")
   ? RAW_API_BASE
   : `${RAW_API_BASE.replace(/\/+$/, "")}/api/stream-together`;
-const SRS_RTC_BASE =
-  process.env.REACT_APP_SRS_RTC_BASE_URL || "webrtc://srs.streammova.xyz/live";
+const SRS_RTC_BASE = process.env.REACT_APP_SRS_RTC_BASE_URL || "webrtc://srs.streammova.xyz/live";
 const STREAM_TOGETHER_HOST_STATE_KEY = "streammova_stream_together_host_state";
+
 const streamTogetherHostRuntime = {
   stream: null,
   publisher: null,
@@ -23,6 +25,9 @@ const streamTogetherHostRuntime = {
   title: "",
 };
 
+// =========================
+// UTILITY FUNCTIONS
+// =========================
 function buildSrsUrl(streamKey) {
   return `${SRS_RTC_BASE.replace(/\/+$/, "")}/${streamKey}`;
 }
@@ -34,19 +39,13 @@ function makeSessionId() {
 
 async function apiFetch(path, options = {}) {
   let response;
-
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     });
   } catch (err) {
-    throw new Error(
-      `Could not reach the Stream Together API at ${API_BASE}. Check that the backend is running and REACT_APP_API_BASE_URL points to it.`
-    );
+    throw new Error(`Could not reach the Stream Together API at ${API_BASE}.`);
   }
 
   const data = await response.json().catch(() => ({}));
@@ -62,9 +61,7 @@ async function apiFetch(path, options = {}) {
 function isStreamTogetherSessionNotFound(error) {
   return (
     error?.status === 404 &&
-    String(error?.message || "")
-      .toLowerCase()
-      .includes("session not found")
+    String(error?.message || "").toLowerCase().includes("session not found")
   );
 }
 
@@ -88,11 +85,7 @@ function writeStoredChannel(channel, extra = {}) {
 
   localStorage.setItem(
     CHANNEL_STORAGE_KEY,
-    JSON.stringify({
-      ...saved,
-      ...extra,
-      connectedChannels: nextChannels,
-    })
+    JSON.stringify({ ...saved, ...extra, connectedChannels: nextChannels })
   );
 }
 
@@ -102,23 +95,17 @@ function decodeOAuthPayload(value) {
 
 function formatOAuthError(errorCode) {
   if (!errorCode) return "";
-
   if (errorCode.endsWith("_oauth_not_configured")) {
     const platform = errorCode.split("_")[0];
     return `${platform} OAuth is not configured in backend/.env yet. Add the client ID, client secret, and redirect URI for that platform.`;
   }
-
   return `Channel connection failed: ${errorCode}`;
 }
 
 function writeOAuthStatus(type, message) {
   localStorage.setItem(
     OAUTH_STATUS_KEY,
-    JSON.stringify({
-      type,
-      message,
-      updatedAt: Date.now(),
-    })
+    JSON.stringify({ type, message, updatedAt: Date.now() })
   );
 }
 
@@ -170,34 +157,36 @@ async function playFromSrs(video, streamKey) {
   }
 
   const player = new window.SrsRtcPlayerAsync();
-  video.srcObject = player.stream;
   await player.play(buildSrsUrl(streamKey));
+  
+  // Assign stream AFTER play completes (the stream is now available)
+  video.srcObject = player.stream;
   return player;
 }
 
 // =========================
-// CANVAS COMPOSITOR - Mixes multiple streams into one
+// CANVAS COMPOSITOR
 // =========================
-
 class StreamCompositor {
   constructor(canvas, width = 1280, height = 720) {
     this.canvas = canvas;
     this.canvas.width = width;
     this.canvas.height = height;
-    this.ctx = canvas.getContext('2d');
-    this.videos = [];
+    this.ctx = canvas.getContext("2d");
+    this.videos = []; // { video, label, id }
     this.animationId = null;
     this.outputStream = null;
-    this.layout = 'side-by-side'; // 'side-by-side' or 'pip' (picture-in-picture)
+    this.layout = "side-by-side"; // 'side-by-side' or 'pip'
   }
 
-  addVideo(video, label = '') {
-    this.videos.push({ video, label });
+  addVideo(video, label, id) {
+    if (!video || this.videos.some((v) => v.id === id)) return;
+    this.videos.push({ video, label, id });
     this._draw();
   }
 
-  removeVideo(video) {
-    this.videos = this.videos.filter(v => v.video !== video);
+  removeVideo(id) {
+    this.videos = this.videos.filter((v) => v.id !== id);
     this._draw();
   }
 
@@ -212,23 +201,30 @@ class StreamCompositor {
     }
 
     const drawFrame = () => {
-      this.ctx.fillStyle = '#05060a';
+      this.ctx.fillStyle = "#05060a";
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
       const numVideos = this.videos.length;
 
       if (numVideos === 0) {
-        // Draw placeholder
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-        this.ctx.font = '24px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('Waiting for streams...', this.canvas.width / 2, this.canvas.height / 2);
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
+        this.ctx.font = "24px Arial";
+        this.ctx.textAlign = "center";
+        this.ctx.fillText(
+          "Waiting for streams...",
+          this.canvas.width / 2,
+          this.canvas.height / 2
+        );
       } else if (numVideos === 1) {
-        // Single stream - full canvas
-        this._drawVideoFrame(this.videos[0], 0, 0, this.canvas.width, this.canvas.height);
+        this._drawVideoFrame(
+          this.videos[0],
+          0,
+          0,
+          this.canvas.width,
+          this.canvas.height
+        );
       } else {
-        // Multiple streams - side by side
-        if (this.layout === 'side-by-side') {
+        if (this.layout === "side-by-side") {
           this._drawSideBySide();
         } else {
           this._drawPIP();
@@ -253,26 +249,35 @@ class StreamCompositor {
       const row = Math.floor(index / cols);
       const x = col * cellWidth;
       const y = row * cellHeight;
-      
+
       this._drawVideoFrame(videoObj, x, y, cellWidth, cellHeight);
 
-      // Draw label
       if (videoObj.label) {
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        this.ctx.fillRect(x + 10, y + 10, this.ctx.measureText(videoObj.label).width + 20, 30);
-        this.ctx.fillStyle = '#fff';
-        this.ctx.font = '14px Arial';
-        this.ctx.textAlign = 'left';
+        this.ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        this.ctx.fillRect(
+          x + 10,
+          y + 10,
+          this.ctx.measureText(videoObj.label).width + 20,
+          30
+        );
+        this.ctx.fillStyle = "#fff";
+        this.ctx.font = "14px Arial";
+        this.ctx.textAlign = "left";
         this.ctx.fillText(videoObj.label, x + 20, y + 30);
       }
     });
   }
 
   _drawPIP() {
-    // Main video (host) takes full canvas
-    this._drawVideoFrame(this.videos[0], 0, 0, this.canvas.width, this.canvas.height);
+    // Main video takes full canvas
+    this._drawVideoFrame(
+      this.videos[0],
+      0,
+      0,
+      this.canvas.width,
+      this.canvas.height
+    );
 
-    // Additional videos as PIP
     const pipWidth = this.canvas.width * 0.25;
     const pipHeight = this.canvas.height * 0.25;
     const padding = 20;
@@ -280,12 +285,11 @@ class StreamCompositor {
     for (let i = 1; i < this.videos.length; i++) {
       const pipX = this.canvas.width - pipWidth - padding;
       const pipY = padding + (i - 1) * (pipHeight + padding);
-      
-      // PIP border
-      this.ctx.strokeStyle = '#9146FF';
+
+      this.ctx.strokeStyle = "#9146FF";
       this.ctx.lineWidth = 2;
       this.ctx.strokeRect(pipX - 2, pipY - 2, pipWidth + 4, pipHeight + 4);
-      
+
       this._drawVideoFrame(this.videos[i], pipX, pipY, pipWidth, pipHeight);
     }
   }
@@ -304,15 +308,7 @@ class StreamCompositor {
 
   getOutputStream() {
     if (!this.outputStream) {
-      this.outputStream = this.canvas.captureStream(30); // 30 FPS
-      
-      // Also capture audio from the first video (host)
-      if (this.videos.length > 0) {
-        const audioTracks = this.videos[0].video.srcObject?.getAudioTracks();
-        if (audioTracks && audioTracks.length > 0) {
-          this.outputStream.addTrack(audioTracks[0].clone());
-        }
-      }
+      this.outputStream = this.canvas.captureStream(30);
     }
     return this.outputStream;
   }
@@ -323,7 +319,7 @@ class StreamCompositor {
       this.animationId = null;
     }
     if (this.outputStream) {
-      this.outputStream.getTracks().forEach(track => track.stop());
+      this.outputStream.getTracks().forEach((track) => track.stop());
       this.outputStream = null;
     }
     this.videos = [];
@@ -331,13 +327,77 @@ class StreamCompositor {
 }
 
 // =========================
+// AUDIO MIXER
+// =========================
+class AudioMixer {
+  constructor() {
+    this.audioContext = null;
+    this.mixedDestination = null;
+    this.sources = new Map(); // id -> { source, stream }
+  }
+
+  initialize() {
+    if (this.audioContext) return;
+    
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    this.mixedDestination = this.audioContext.createMediaStreamDestination();
+  }
+
+  addSource(id, stream) {
+    if (!this.audioContext || !this.mixedDestination) return;
+    if (this.sources.has(id)) return;
+
+    try {
+      const source = this.audioContext.createMediaStreamSource(stream);
+      source.connect(this.mixedDestination);
+      this.sources.set(id, { source, stream });
+    } catch (error) {
+      console.warn(`Failed to add audio source for ${id}:`, error);
+    }
+  }
+
+  removeSource(id) {
+    if (!this.audioContext || !this.sources.has(id)) return;
+
+    const { source } = this.sources.get(id);
+    try {
+      source.disconnect();
+    } catch (error) {
+      console.warn(`Failed to remove audio source for ${id}:`, error);
+    }
+    this.sources.delete(id);
+  }
+
+  getMixedStream() {
+    return this.mixedDestination?.stream || null;
+  }
+
+  destroy() {
+    this.sources.forEach(({ source }) => {
+      try {
+        source.disconnect();
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    });
+    this.sources.clear();
+
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    this.mixedDestination = null;
+  }
+}
+
+// =========================
 // STREAM TOGETHER MAIN
 // =========================
-
 function StreamTogether() {
   const navigate = useNavigate();
   const path = window.location.pathname;
   const sessionId = path.split("/").filter(Boolean).pop();
+  
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1);
@@ -358,10 +418,10 @@ function StreamTogether() {
 }
 
 // =========================
-// STREAM TOGETHER HOST - WITH COMPOSITED OUTPUT
+// STREAM TOGETHER HOST
 // =========================
-
 function StreamTogetherHost({ onBack }) {
+  // State
   const [title, setTitle] = useState("");
   const [session, setSession] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -375,30 +435,36 @@ function StreamTogetherHost({ onBack }) {
   const [copied, setCopied] = useState("");
   const [ffmpegStatus, setFfmpegStatus] = useState("");
 
+  // Refs
   const videoRef = useRef(null);
-  const canvasRef = useRef(null); // Canvas for compositing
+  const canvasRef = useRef(null); // Hidden compositing canvas
+  const previewCanvasRef = useRef(null); // Visible preview canvas
   const streamRef = useRef(null);
   const publisherRef = useRef(null);
   const testPublisherRef = useRef(null);
   const compositorRef = useRef(null);
-  const cohostVideoRefs = useRef({}); // Store video elements for co-hosts
-  const cohostPlayersRef = useRef({}); // Store SRS players for co-hosts
+  const audioMixerRef = useRef(new AudioMixer());
+  const cohostVideoRefs = useRef({}); // streamKey -> video element
+  const cohostPlayersRef = useRef({}); // streamKey -> player instance
   const modalRef = useRef(null);
+  const previewAnimationRef = useRef(null);
 
-  const cohostLink = session
-    ? `${window.location.origin}/cohost-join/${session.sessionId}`
-    : "";
-  const viewerLink = session ? `${window.location.origin}/watch/${session.sessionId}` : "";
-
+  // Derived values
   const activePublishers = session?.publishers || [];
   const coHosts = session?.coHosts || [];
   const selectedDestinations = connectedChannels.filter((channel) =>
     selectedChannelIds.includes(String(channel.id))
   );
+  const cohostLink = session
+    ? `${window.location.origin}/cohost-join/${session.sessionId}`
+    : "";
+  const viewerLink = session
+    ? `${window.location.origin}/watch/${session.sessionId}`
+    : "";
 
-  const saveHostRuntime = (next = {}) => {
+  // Local storage helpers
+  const saveHostRuntime = useCallback((next = {}) => {
     Object.assign(streamTogetherHostRuntime, next);
-
     localStorage.setItem(
       STREAM_TOGETHER_HOST_STATE_KEY,
       JSON.stringify({
@@ -408,15 +474,14 @@ function StreamTogetherHost({ onBack }) {
         title: streamTogetherHostRuntime.title,
       })
     );
-  };
+  }, []);
 
-  const loadConnectedChannels = () => {
+  const loadConnectedChannels = useCallback(() => {
     try {
       const saved = readStoredChannels();
       const channels = Array.isArray(saved.connectedChannels)
         ? saved.connectedChannels
         : [];
-
       setConnectedChannels(channels);
       setSelectedChannelIds((previous) => {
         const validIds = channels.map((channel) => String(channel.id));
@@ -428,54 +493,646 @@ function StreamTogetherHost({ onBack }) {
       setConnectedChannels([]);
       setSelectedChannelIds([]);
     }
-  };
+  }, []);
 
-  // Play co-host streams from SRS
-  const playCoHostStream = async (publisher) => {
-    if (!cohostVideoRefs.current[publisher.streamKey]) {
-      // Create a hidden video element for the co-host
-      const video = document.createElement('video');
+  // Play a co-host's stream
+  const playCoHostStream = useCallback(
+    async (publisher) => {
+      const { streamKey, role } = publisher;
+
+      // Don't duplicate if already playing
+      if (cohostVideoRefs.current[streamKey]) return;
+
+      // Create hidden video element
+      const video = document.createElement("video");
       video.autoplay = true;
       video.playsInline = true;
-      video.muted = true; // Must be muted for autoplay
-      video.style.display = 'none';
+      video.muted = false;
+      video.volume = 0; // Silent to prevent audio feedback
+      video.style.display = "none";
       document.body.appendChild(video);
-      cohostVideoRefs.current[publisher.streamKey] = video;
-      
+
+      cohostVideoRefs.current[streamKey] = video;
+
       try {
-        const player = await playFromSrs(video, publisher.streamKey);
-        cohostPlayersRef.current[publisher.streamKey] = player;
-        
-        // Add to compositor
+        // Play the stream (player is returned after stream is ready)
+        const player = await playFromSrs(video, streamKey);
+        cohostPlayersRef.current[streamKey] = player;
+
+        // Add to compositor for visual mixing
         if (compositorRef.current) {
-          const label = publisher.role === 'host' ? 'Host' : `Co-host`;
-          compositorRef.current.addVideo(video, label);
+          const label = role === "host" ? "Host" : "Co-host";
+          compositorRef.current.addVideo(video, label, streamKey);
+        }
+
+        // Add audio source for mixing
+        if (player.stream) {
+          audioMixerRef.current.addSource(streamKey, player.stream);
         }
       } catch (err) {
-        console.warn(`Failed to play co-host stream: ${publisher.streamKey}`, err);
+        console.warn(`Failed to play co-host stream: ${streamKey}`, err);
+        // Clean up failed video element
+        video.remove();
+        delete cohostVideoRefs.current[streamKey];
       }
-    }
-  };
+    },
+    []
+  );
 
-  // Setup compositor with canvas
-  const setupCompositor = () => {
+  // Remove a co-host's stream
+  const removeCoHostStream = useCallback((streamKey) => {
+    // Stop and remove player
+    if (cohostPlayersRef.current[streamKey]) {
+      cohostPlayersRef.current[streamKey]?.close?.();
+      delete cohostPlayersRef.current[streamKey];
+    }
+
+    // Remove video element
+    if (cohostVideoRefs.current[streamKey]) {
+      cohostVideoRefs.current[streamKey].remove();
+      delete cohostVideoRefs.current[streamKey];
+    }
+
+    // Remove from compositor
+    if (compositorRef.current) {
+      compositorRef.current.removeVideo(streamKey);
+    }
+
+    // Remove audio source
+    audioMixerRef.current.removeSource(streamKey);
+  }, []);
+
+  // Setup compositor
+  const setupCompositor = useCallback(() => {
     if (!canvasRef.current) return;
-    
+
+    // Initialize audio mixer
+    audioMixerRef.current.initialize();
+
+    // Create compositor if needed
     if (!compositorRef.current) {
       compositorRef.current = new StreamCompositor(canvasRef.current, 1280, 720);
     }
 
     // Add host video
     if (videoRef.current) {
-      compositorRef.current.addVideo(videoRef.current, 'Host');
+      compositorRef.current.addVideo(videoRef.current, "Host", "host");
+    }
+
+    // Add host audio
+    if (streamRef.current) {
+      audioMixerRef.current.addSource("host", streamRef.current);
     }
 
     // Add existing co-host videos
-    Object.values(cohostVideoRefs.current).forEach(video => {
-      compositorRef.current.addVideo(video, 'Co-host');
+    Object.entries(cohostVideoRefs.current).forEach(([key, video]) => {
+      compositorRef.current.addVideo(video, "Co-host", key);
     });
-  };
+  }, []);
 
+  // Start preview canvas mirror
+  const startPreviewMirror = useCallback(() => {
+    if (!previewCanvasRef.current || !compositorRef.current) return;
+
+    const drawPreview = () => {
+      if (!previewCanvasRef.current || !compositorRef.current) return;
+
+      const ctx = previewCanvasRef.current.getContext("2d");
+      const sourceCanvas = compositorRef.current.canvas;
+
+      if (previewCanvasRef.current.width !== sourceCanvas.width ||
+          previewCanvasRef.current.height !== sourceCanvas.height) {
+        previewCanvasRef.current.width = sourceCanvas.width;
+        previewCanvasRef.current.height = sourceCanvas.height;
+      }
+
+      ctx.drawImage(sourceCanvas, 0, 0);
+      previewAnimationRef.current = requestAnimationFrame(drawPreview);
+    };
+
+    drawPreview();
+  }, []);
+
+  // Stop preview canvas mirror
+  const stopPreviewMirror = useCallback(() => {
+    if (previewAnimationRef.current) {
+      cancelAnimationFrame(previewAnimationRef.current);
+      previewAnimationRef.current = null;
+    }
+  }, []);
+
+  // Full cleanup
+  const cleanupAll = useCallback(() => {
+    // Stop preview
+    stopPreviewMirror();
+
+    // Stop compositor
+    compositorRef.current?.stop();
+    compositorRef.current = null;
+
+    // Stop SRS publishers
+    publisherRef.current?.close?.();
+    publisherRef.current = null;
+    testPublisherRef.current?.close?.();
+    testPublisherRef.current = null;
+
+    // Stop host stream
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+
+    // Remove all co-host resources
+    Object.keys(cohostVideoRefs.current).forEach((key) => {
+      removeCoHostStream(key);
+    });
+
+    // Destroy audio mixer
+    audioMixerRef.current.destroy();
+
+    // Clear host video
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    // Reset state
+    setCameraActive(false);
+    setIsLive(false);
+    saveHostRuntime({
+      stream: null,
+      publisher: null,
+      testPublisher: null,
+      cameraActive: false,
+      isLive: false,
+    });
+  }, [stopPreviewMirror, removeCoHostStream, saveHostRuntime]);
+
+  // Activate camera
+  const activateCamera = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+
+    streamRef.current = stream;
+    saveHostRuntime({ stream, cameraActive: true, title: title.trim() || streamTogetherHostRuntime.title });
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play().catch(() => {});
+    }
+
+    setCameraActive(true);
+
+    // Add to compositor and audio mixer if they exist
+    if (compositorRef.current) {
+      compositorRef.current.addVideo(videoRef.current, "Host", "host");
+    }
+    audioMixerRef.current.addSource("host", stream);
+
+    return stream;
+  }, [title, saveHostRuntime]);
+
+  // Create invite session
+  const createInviteSession = useCallback(async () => {
+    // Try to refresh existing session
+    if (session?.sessionId) {
+      try {
+        const existing = await apiFetch(`/session/${session.sessionId}`);
+        setSession(existing.session);
+        saveHostRuntime({
+          session: existing.session,
+          title: title.trim() || existing.session.title || "",
+        });
+        return existing.session;
+      } catch (err) {
+        if (!isStreamTogetherSessionNotFound(err)) throw err;
+        // Session expired, create new one
+        setSession(null);
+        setIsLive(false);
+        setShowInvite(false);
+        saveHostRuntime({ session: null, isLive: false, title: title.trim() });
+      }
+    }
+
+    // Create new session
+    const sessionId = makeSessionId();
+    const created = await apiFetch("/create-session", {
+      method: "POST",
+      body: JSON.stringify({
+        title: title.trim(),
+        clientSessionId: sessionId,
+        streamKey: sessionId,
+        destinations: selectedDestinations.map((channel) => ({
+          id: channel.id,
+          platform: channel.platform,
+          name: channel.name,
+          displayName: channel.displayName || channel.pageName || "",
+          status: channel.status,
+        })),
+      }),
+    });
+
+    setSession(created.session);
+    saveHostRuntime({ session: created.session, title: title.trim() });
+    return created.session;
+  }, [session, title, selectedDestinations, saveHostRuntime]);
+
+  // Start FFmpeg for destinations
+  const startFFmpegForDestinations = useCallback(
+    async (compositedStreamKey) => {
+      const saved = readStoredChannels();
+      const platformsStarted = [];
+
+      for (const channel of selectedDestinations) {
+        try {
+          if (channel.platform === "twitch" && saved.twitchStreamKey) {
+            await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channelId: session?.sessionId || "streamtogether",
+                streamKey: saved.twitchStreamKey,
+                compositedStreamKey,
+              }),
+            });
+            platformsStarted.push("Twitch");
+          }
+
+          if (channel.platform === "youtube" && saved.youtubeAccessToken) {
+            await fetch(`${RAW_API_BASE}/api/youtube/live/start`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channelId: session?.sessionId || "streamtogether",
+                accessToken: saved.youtubeAccessToken,
+                refreshToken: saved.youtubeRefreshToken,
+                title: title || "Stream Together Live",
+                description: "Live from Stream Together",
+                compositedStreamKey,
+              }),
+            });
+            platformsStarted.push("YouTube");
+          }
+
+          if (channel.platform === "facebook") {
+            const pages = saved.facebookPages || [];
+            const selectedPageId = saved.selectedFacebookPageId;
+            const page = pages.find((p) => p.id === selectedPageId);
+
+            if (page?.access_token) {
+              await fetch(`${RAW_API_BASE}/api/facebook/live/start`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  channelId: session?.sessionId || "streamtogether",
+                  title: title || "Stream Together Live",
+                  description: "Live from Stream Together",
+                  pageId: page.id,
+                  pageAccessToken: page.access_token,
+                  compositedStreamKey,
+                }),
+              });
+              platformsStarted.push("Facebook");
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to start FFmpeg for ${channel.platform}:`, err);
+        }
+      }
+
+      if (platformsStarted.length > 0) {
+        setFfmpegStatus(`Streaming to ${platformsStarted.join(", ")}`);
+      }
+    },
+    [session, selectedDestinations, title]
+  );
+
+  // Stop FFmpeg for destinations
+  const stopFFmpegForDestinations = useCallback(async () => {
+    const stopPromises = [];
+
+    if (selectedDestinations.some((c) => c.platform === "twitch")) {
+      stopPromises.push(
+        fetch(`${RAW_API_BASE}/api/twitch/live/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelId: session?.sessionId || "streamtogether",
+          }),
+        }).catch(() => {})
+      );
+    }
+
+    if (selectedDestinations.some((c) => c.platform === "youtube")) {
+      stopPromises.push(
+        fetch(`${RAW_API_BASE}/api/youtube/live/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelId: session?.sessionId || "streamtogether",
+          }),
+        }).catch(() => {})
+      );
+    }
+
+    if (selectedDestinations.some((c) => c.platform === "facebook")) {
+      stopPromises.push(
+        fetch(`${RAW_API_BASE}/api/facebook/live/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelId: session?.sessionId || "streamtogether",
+          }),
+        }).catch(() => {})
+      );
+    }
+
+    await Promise.allSettled(stopPromises);
+    setFfmpegStatus("");
+  }, [session, selectedDestinations]);
+
+  // Start stream
+  const startStream = useCallback(async () => {
+    if (!title.trim()) {
+      setError("Enter a session title first.");
+      return null;
+    }
+
+    setIsBusy(true);
+    setError("");
+    setFfmpegStatus("");
+
+    try {
+      // Activate camera if not already active
+      const stream = streamRef.current || (await activateCamera());
+      
+      // Create session
+      const currentSession = await createInviteSession();
+      const hostStreamKey = `${currentSession.sessionId}-host`;
+      const compositedStreamKey = `${currentSession.sessionId}-composited`;
+
+      let publishStatus = "publishing";
+
+      // Setup compositor
+      setupCompositor();
+      startPreviewMirror();
+
+      // Publish host camera to SRS (for co-hosts to see)
+      try {
+        const publisher = await publishToSrs(stream, hostStreamKey);
+        publisherRef.current = publisher;
+        saveHostRuntime({ publisher });
+        console.log("Published host stream:", hostStreamKey);
+      } catch (publishError) {
+        publishStatus = "local-preview";
+        console.warn("Host SRS publish failed:", publishError);
+      }
+
+      // Publish composited stream for FFmpeg (with mixed audio)
+      if (selectedDestinations.length > 0 && compositorRef.current) {
+        try {
+          const compositedStream = compositorRef.current.getOutputStream();
+          
+          // Add mixed audio to composited stream
+          const mixedAudioStream = audioMixerRef.current.getMixedStream();
+          if (mixedAudioStream) {
+            const audioTracks = mixedAudioStream.getAudioTracks();
+            audioTracks.forEach((track) => {
+              compositedStream.addTrack(track);
+            });
+          }
+
+          const testPublisher = await publishToSrs(compositedStream, compositedStreamKey);
+          testPublisherRef.current = testPublisher;
+          saveHostRuntime({ testPublisher });
+          console.log("Published composited stream:", compositedStreamKey);
+        } catch (testPublishError) {
+          console.warn("Failed to publish composited stream:", testPublishError);
+        }
+      }
+
+      // Register publisher with backend
+      await apiFetch(`/register-publisher/${currentSession.sessionId}`, {
+        method: "POST",
+        body: JSON.stringify({
+          userId: "host",
+          role: "host",
+          streamKey: hostStreamKey,
+          publishStatus,
+        }),
+      });
+
+      // Start session on backend
+      const started = await apiFetch(`/start-session/${currentSession.sessionId}`, {
+        method: "POST",
+      });
+
+      setSession(started.session);
+      setIsLive(true);
+      saveHostRuntime({
+        session: started.session,
+        isLive: true,
+        title: title.trim(),
+      });
+
+      // Start FFmpeg for destinations
+      if (selectedDestinations.length > 0) {
+        await startFFmpegForDestinations(compositedStreamKey);
+      }
+
+      // Show warning if SRS publish failed
+      if (publishStatus === "local-preview") {
+        setError(
+          "Session started locally, but SRS publishing failed. Co-hosts can still join; check SRS before going public."
+        );
+      }
+
+      return started.session;
+    } catch (err) {
+      setError(err.message || "Failed to start Stream Together.");
+      setIsLive(false);
+      cleanupAll();
+      return null;
+    } finally {
+      setIsBusy(false);
+    }
+  }, [
+    title,
+    activateCamera,
+    createInviteSession,
+    setupCompositor,
+    startPreviewMirror,
+    selectedDestinations,
+    saveHostRuntime,
+    startFFmpegForDestinations,
+    cleanupAll,
+  ]);
+
+  // Stop stream
+  const stopStream = useCallback(async () => {
+    setIsBusy(true);
+    setError("");
+
+    // Stop FFmpeg first
+    await stopFFmpegForDestinations();
+
+    try {
+      if (session?.sessionId) {
+        await apiFetch(`/stop-session/${session.sessionId}`, { method: "POST" });
+      }
+    } catch (err) {
+      setError(err.message || "Failed to stop session.");
+    } finally {
+      cleanupAll();
+      setIsLive(false);
+      setShowInvite(false);
+      setIsBusy(false);
+      setSession((prev) =>
+        prev ? { ...prev, status: "ended", publishers: [], coHosts: [] } : prev
+      );
+      localStorage.removeItem(STREAM_TOGETHER_HOST_STATE_KEY);
+      saveHostRuntime({ session: null, title: "" });
+    }
+  }, [stopFFmpegForDestinations, session, cleanupAll, saveHostRuntime]);
+
+  // Open invite
+  const openInvite = useCallback(async () => {
+    if (!title.trim()) {
+      setError("Enter a session title first.");
+      return;
+    }
+
+    setIsBusy(true);
+    setError("");
+
+    try {
+      const currentSession = await createInviteSession();
+      if (currentSession) setShowInvite(true);
+    } catch (err) {
+      setError(err.message || "Failed to create a co-host invite.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [title, createInviteSession]);
+
+  // Copy to clipboard
+  const copy = useCallback(async (value, label) => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(value);
+      setCopied(`${label} copied`);
+    } catch (err) {
+      setCopied(
+        `${label} could not be copied automatically. Select the link and copy it manually.`
+      );
+    }
+    setTimeout(() => setCopied(""), 1800);
+  }, []);
+
+  // Toggle destination
+  const toggleDestination = useCallback((channelId) => {
+    const id = String(channelId);
+    setSelectedChannelIds((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id]
+    );
+  }, []);
+
+  // Channel modal handlers
+  const openChannelModal = useCallback(() => {
+    loadConnectedChannels();
+    setShowChannelModal(true);
+  }, [loadConnectedChannels]);
+
+  const closeChannelModal = useCallback(() => {
+    setShowChannelModal(false);
+    loadConnectedChannels();
+  }, [loadConnectedChannels]);
+
+  // Start OAuth flow
+  const startOAuth = useCallback((platform) => {
+    const url = `${RAW_API_BASE.replace(
+      /\/+$/,
+      ""
+    )}/api/oauth/${platform}/start?returnTo=${encodeURIComponent(
+      "/stream-together"
+    )}`;
+
+    const popupWidth = 560;
+    const popupHeight = 720;
+    const left = Math.max(
+      0,
+      window.screenX + (window.outerWidth - popupWidth) / 2
+    );
+    const top = Math.max(
+      0,
+      window.screenY + (window.outerHeight - popupHeight) / 2
+    );
+    const popup = window.open(
+      url,
+      "streammova-channel-connect",
+      `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
+    );
+
+    if (!popup) {
+      setError(
+        "Your browser blocked the channel connection popup. Allow popups for this site, then try again."
+      );
+      return;
+    }
+
+    popup.focus();
+    setShowChannelModal(false);
+  }, []);
+
+  // Poll for co-host updates
+  useEffect(() => {
+    if (!isLive || !session?.sessionId) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await apiFetch(`/session/${session.sessionId}`);
+        setSession(data.session);
+
+        // Get current co-host publishers
+        const cohostPublishers = (data.session?.publishers || []).filter(
+          (p) => p.role === "cohost"
+        );
+        const currentStreamKeys = new Set(
+          cohostPublishers.map((p) => p.streamKey)
+        );
+        const existingStreamKeys = new Set(
+          Object.keys(cohostVideoRefs.current)
+        );
+
+        // Add new co-hosts
+        for (const publisher of cohostPublishers) {
+          if (!existingStreamKeys.has(publisher.streamKey)) {
+            await playCoHostStream(publisher);
+          }
+        }
+
+        // Remove disconnected co-hosts
+        for (const streamKey of existingStreamKeys) {
+          if (!currentStreamKeys.has(streamKey)) {
+            removeCoHostStream(streamKey);
+          }
+        }
+      } catch (err) {
+        console.warn("Session refresh failed:", err);
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [isLive, session?.sessionId, playCoHostStream, removeCoHostStream]);
+
+  // Restore state on mount and handle OAuth
   useEffect(() => {
     const stored = (() => {
       try {
@@ -487,7 +1144,8 @@ function StreamTogetherHost({ onBack }) {
       }
     })();
 
-    const restoredSession = streamTogetherHostRuntime.session || stored.session;
+    const restoredSession =
+      streamTogetherHostRuntime.session || stored.session;
     const restoredStream = streamTogetherHostRuntime.stream;
 
     if (stored.title || streamTogetherHostRuntime.title) {
@@ -515,6 +1173,7 @@ function StreamTogetherHost({ onBack }) {
 
     loadConnectedChannels();
 
+    // Handle OAuth callback parameters
     const params = new URLSearchParams(window.location.search);
     const oauthError = params.get("error");
     const hasOauthResult =
@@ -530,111 +1189,114 @@ function StreamTogetherHost({ onBack }) {
       window.history.replaceState({}, document.title, "/stream-together");
     }
 
-    const facebookPayload = params.get("facebook_oauth");
-    const twitchPayload = params.get("twitch_oauth");
-    const youtubePayload = params.get("youtube_oauth");
-
-    try {
-      if (facebookPayload) {
-        const decoded = decodeOAuthPayload(facebookPayload);
-        const pages = decoded?.pages?.data || [];
-
-        if (!Array.isArray(pages) || pages.length === 0) {
-          setError("Facebook connected, but no Pages were found.");
-        } else {
-          writeStoredChannel(
-            {
-              id: "facebook-connected",
-              platform: "facebook",
-              name: "Facebook",
-              icon: "fab fa-facebook",
-              color: "#1877F2",
-              logo: "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg",
-              status: "connected",
-              pageName: pages[0].name,
-              addedAt: new Date().toISOString(),
-            },
-            {
-              facebookPages: pages,
-              selectedFacebookPageId: pages[0].id,
-              facebookConnectStatus: `Facebook connected. ${pages.length} page(s) found.`,
-            }
-          );
-          writeOAuthStatus("success", "Facebook channel connected.");
-          loadConnectedChannels();
+    // Process OAuth payloads
+    const processOAuthPayload = (platform, payloadKey, handler) => {
+      const payload = params.get(payloadKey);
+      if (payload) {
+        try {
+          const decoded = decodeOAuthPayload(payload);
+          handler(decoded);
+          window.history.replaceState({}, document.title, "/stream-together");
+        } catch (err) {
+          const message = "Could not read the channel connection result.";
+          setError(message);
+          writeOAuthStatus("error", message);
+          console.error("OAuth payload handling failed:", err);
         }
-        window.history.replaceState({}, document.title, "/stream-together");
       }
+    };
 
-      if (twitchPayload) {
-        const decoded = decodeOAuthPayload(twitchPayload);
+    // Facebook OAuth handler
+    processOAuthPayload("facebook", "facebook_oauth", (decoded) => {
+      const pages = decoded?.pages?.data || [];
+      if (!Array.isArray(pages) || pages.length === 0) {
+        setError("Facebook connected, but no Pages were found.");
+      } else {
         writeStoredChannel(
           {
-            id: `twitch-${decoded.user.id}`,
-            platform: "twitch",
-            name: "Twitch",
-            displayName: decoded.user.display_name,
-            icon: "fab fa-twitch",
-            color: "#9146FF",
-            logo: "https://cdn4.iconfinder.com/data/icons/social-media-logos-8/512/Twitch-512.png",
+            id: "facebook-connected",
+            platform: "facebook",
+            name: "Facebook",
+            icon: "fab fa-facebook",
+            color: "#1877F2",
+            logo: "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg",
             status: "connected",
-            streamKey: decoded.stream_key,
-            rtmpUrl: decoded.rtmp_url,
+            pageName: pages[0].name,
             addedAt: new Date().toISOString(),
           },
           {
-            twitchConnected: true,
-            twitchUsername: decoded.user.display_name,
-            twitchStreamKey: decoded.stream_key,
-            twitchRtmpUrl: decoded.rtmp_url,
+            facebookPages: pages,
+            selectedFacebookPageId: pages[0].id,
+            facebookConnectStatus: `Facebook connected. ${pages.length} page(s) found.`,
           }
         );
-        writeOAuthStatus("success", "Twitch channel connected.");
+        writeOAuthStatus("success", "Facebook channel connected.");
         loadConnectedChannels();
-        window.history.replaceState({}, document.title, "/stream-together");
       }
+    });
 
-      if (youtubePayload) {
-        const decoded = decodeOAuthPayload(youtubePayload);
-        writeStoredChannel(
-          {
-            id: `youtube-${decoded.user.id}`,
-            platform: "youtube",
-            name: "YouTube",
-            displayName: decoded.user.title,
-            icon: "fab fa-youtube",
-            color: "#FF0000",
-            logo: "https://cdn2.iconfinder.com/data/icons/social-media-2285/512/1_Youtube_colored_svg-512.png",
-            status: "connected",
-            streamKey: decoded.stream_key || "",
-            rtmpUrl: decoded.rtmp_url || "",
-            addedAt: new Date().toISOString(),
-          },
-          {
-            youtubeConnected: true,
-            youtubeChannelName: decoded.user.title,
-            youtubeStreamKey: decoded.stream_key || "",
-            youtubeRtmpUrl: decoded.rtmp_url || "",
-            youtubeAccessToken: decoded.access_token || "",
-            youtubeRefreshToken: decoded.refresh_token || "",
-          }
-        );
-        writeOAuthStatus("success", "YouTube channel connected.");
-        loadConnectedChannels();
-        window.history.replaceState({}, document.title, "/stream-together");
-      }
-    } catch (err) {
-      const message =
-        "Could not read the channel connection result. Please try again.";
-      setError(message);
-      writeOAuthStatus("error", message);
-      console.error("OAuth payload handling failed:", err);
-    }
+    // Twitch OAuth handler
+    processOAuthPayload("twitch", "twitch_oauth", (decoded) => {
+      writeStoredChannel(
+        {
+          id: `twitch-${decoded.user.id}`,
+          platform: "twitch",
+          name: "Twitch",
+          displayName: decoded.user.display_name,
+          icon: "fab fa-twitch",
+          color: "#9146FF",
+          logo: "https://cdn4.iconfinder.com/data/icons/social-media-logos-8/512/Twitch-512.png",
+          status: "connected",
+          streamKey: decoded.stream_key,
+          rtmpUrl: decoded.rtmp_url,
+          addedAt: new Date().toISOString(),
+        },
+        {
+          twitchConnected: true,
+          twitchUsername: decoded.user.display_name,
+          twitchStreamKey: decoded.stream_key,
+          twitchRtmpUrl: decoded.rtmp_url,
+        }
+      );
+      writeOAuthStatus("success", "Twitch channel connected.");
+      loadConnectedChannels();
+    });
 
+    // YouTube OAuth handler
+    processOAuthPayload("youtube", "youtube_oauth", (decoded) => {
+      writeStoredChannel(
+        {
+          id: `youtube-${decoded.user.id}`,
+          platform: "youtube",
+          name: "YouTube",
+          displayName: decoded.user.title,
+          icon: "fab fa-youtube",
+          color: "#FF0000",
+          logo: "https://cdn2.iconfinder.com/data/icons/social-media-2285/512/1_Youtube_colored_svg-512.png",
+          status: "connected",
+          streamKey: decoded.stream_key || "",
+          rtmpUrl: decoded.rtmp_url || "",
+          addedAt: new Date().toISOString(),
+        },
+        {
+          youtubeConnected: true,
+          youtubeChannelName: decoded.user.title,
+          youtubeStreamKey: decoded.stream_key || "",
+          youtubeRtmpUrl: decoded.rtmp_url || "",
+          youtubeAccessToken: decoded.access_token || "",
+          youtubeRefreshToken: decoded.refresh_token || "",
+        }
+      );
+      writeOAuthStatus("success", "YouTube channel connected.");
+      loadConnectedChannels();
+    });
+
+    // Close popup if opened from popup
     if (window.opener && hasOauthResult) {
       setTimeout(() => window.close(), 800);
     }
 
+    // Listen for storage changes
     const handleStorage = (event) => {
       if (event.key === CHANNEL_STORAGE_KEY) {
         loadConnectedChannels();
@@ -655,446 +1317,11 @@ function StreamTogetherHost({ onBack }) {
 
     return () => {
       window.removeEventListener("storage", handleStorage);
-      // Cleanup co-host videos
-      Object.values(cohostVideoRefs.current).forEach(v => {
-        v.remove();
-      });
-      cohostVideoRefs.current = {};
+      cleanupAll();
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll for new co-hosts and play their streams
-  useEffect(() => {
-    if (!isLive || !session?.sessionId) return;
-
-    const timer = setInterval(async () => {
-      try {
-        const data = await apiFetch(`/session/${session.sessionId}`);
-        setSession(data.session);
-        
-        // Auto-play new co-host streams
-        const cohostPublishers = data.session?.publishers?.filter(p => p.role === 'cohost') || [];
-        for (const publisher of cohostPublishers) {
-          await playCoHostStream(publisher);
-        }
-      } catch (err) {
-        console.warn("Session refresh failed:", err);
-      }
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, [isLive, session?.sessionId]);
-
-  const activateCamera = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-
-    streamRef.current = stream;
-    saveHostRuntime({
-      stream,
-      cameraActive: true,
-      title: title.trim() || streamTogetherHostRuntime.title,
-    });
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play().catch(() => {});
-    }
-    setCameraActive(true);
-    
-    // Add to compositor
-    if (compositorRef.current) {
-      compositorRef.current.addVideo(videoRef.current, 'Host');
-    }
-    
-    return stream;
-  };
-
-  const stopLocalMedia = () => {
-    // Stop compositor
-    compositorRef.current?.stop();
-    compositorRef.current = null;
-    
-    // Stop SRS publishers
-    publisherRef.current?.close?.();
-    publisherRef.current = null;
-    testPublisherRef.current?.close?.();
-    testPublisherRef.current = null;
-    
-    // Stop host stream
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    
-    // Stop co-host streams
-    Object.values(cohostPlayersRef.current).forEach(player => player?.close?.());
-    cohostPlayersRef.current = {};
-    Object.values(cohostVideoRefs.current).forEach(v => v.remove());
-    cohostVideoRefs.current = {};
-    
-    saveHostRuntime({
-      stream: null,
-      publisher: null,
-      testPublisher: null,
-      cameraActive: false,
-      isLive: false,
-    });
-    
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraActive(false);
-  };
-
-  const createInviteSession = async () => {
-    if (session?.sessionId) {
-      try {
-        const existing = await apiFetch(`/session/${session.sessionId}`);
-        setSession(existing.session);
-        saveHostRuntime({
-          session: existing.session,
-          title: title.trim() || existing.session.title || "",
-        });
-        return existing.session;
-      } catch (err) {
-        if (!isStreamTogetherSessionNotFound(err)) throw err;
-
-        setSession(null);
-        setIsLive(false);
-        setShowInvite(false);
-        saveHostRuntime({
-          session: null,
-          isLive: false,
-          title: title.trim(),
-        });
-      }
-    }
-
-    const sessionId = makeSessionId();
-    const created = await apiFetch("/create-session", {
-      method: "POST",
-      body: JSON.stringify({
-        title: title.trim(),
-        clientSessionId: sessionId,
-        streamKey: sessionId,
-        destinations: selectedDestinations.map((channel) => ({
-          id: channel.id,
-          platform: channel.platform,
-          name: channel.name,
-          displayName: channel.displayName || channel.pageName || "",
-          status: channel.status,
-        })),
-      }),
-    });
-
-    setSession(created.session);
-    saveHostRuntime({
-      session: created.session,
-      title: title.trim(),
-    });
-    return created.session;
-  };
-
-  const startFFmpegForDestinations = async () => {
-    const saved = readStoredChannels();
-    const platformsStarted = [];
-
-    for (const channel of selectedDestinations) {
-      try {
-        if (channel.platform === "twitch" && saved.twitchStreamKey) {
-          await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              channelId: session?.sessionId || "streamtogether",
-              streamKey: saved.twitchStreamKey,
-            }),
-          });
-          platformsStarted.push("Twitch");
-        }
-
-        if (channel.platform === "youtube" && saved.youtubeAccessToken) {
-          await fetch(`${RAW_API_BASE}/api/youtube/live/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              channelId: session?.sessionId || "streamtogether",
-              accessToken: saved.youtubeAccessToken,
-              refreshToken: saved.youtubeRefreshToken,
-              title: title || "Stream Together Live",
-              description: "Live from Stream Together",
-            }),
-          });
-          platformsStarted.push("YouTube");
-        }
-
-        if (channel.platform === "facebook") {
-          const pages = saved.facebookPages || [];
-          const selectedPageId = saved.selectedFacebookPageId;
-          const page = pages.find((p) => p.id === selectedPageId);
-
-          if (page?.access_token) {
-            await fetch(`${RAW_API_BASE}/api/facebook/live/start`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                channelId: session?.sessionId || "streamtogether",
-                title: title || "Stream Together Live",
-                description: "Live from Stream Together",
-                pageId: page.id,
-                pageAccessToken: page.access_token,
-              }),
-            });
-            platformsStarted.push("Facebook");
-          }
-        }
-      } catch (err) {
-        console.error(`Failed to start FFmpeg for ${channel.platform}:`, err);
-      }
-    }
-
-    if (platformsStarted.length > 0) {
-      setFfmpegStatus(`Streaming to ${platformsStarted.join(", ")}`);
-    }
-  };
-
-  const stopFFmpegForDestinations = async () => {
-    const stopPromises = [];
-
-    if (selectedDestinations.some((c) => c.platform === "twitch")) {
-      stopPromises.push(
-        fetch(`${RAW_API_BASE}/api/twitch/live/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelId: session?.sessionId || "streamtogether" }),
-        }).catch(() => {})
-      );
-    }
-
-    if (selectedDestinations.some((c) => c.platform === "youtube")) {
-      stopPromises.push(
-        fetch(`${RAW_API_BASE}/api/youtube/live/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelId: session?.sessionId || "streamtogether" }),
-        }).catch(() => {})
-      );
-    }
-
-    if (selectedDestinations.some((c) => c.platform === "facebook")) {
-      stopPromises.push(
-        fetch(`${RAW_API_BASE}/api/facebook/live/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelId: session?.sessionId || "streamtogether" }),
-        }).catch(() => {})
-      );
-    }
-
-    await Promise.allSettled(stopPromises);
-    setFfmpegStatus("");
-  };
-
-  const startStream = async () => {
-    if (!title.trim()) {
-      setError("Enter a session title first.");
-      return null;
-    }
-
-    setIsBusy(true);
-    setError("");
-    setFfmpegStatus("");
-
-    try {
-      const stream = streamRef.current || (await activateCamera());
-      const currentSession = await createInviteSession();
-      const hostStreamKey = `${currentSession.sessionId}-host`;
-      let publishStatus = "publishing";
-
-      // Setup compositor
-      setupCompositor();
-
-      // Publish host camera to session (for co-hosts to see)
-      try {
-        const publisher = await publishToSrs(stream, hostStreamKey);
-        publisherRef.current = publisher;
-        saveHostRuntime({ publisher });
-        console.log("Published host stream:", hostStreamKey);
-      } catch (publishError) {
-        publishStatus = "local-preview";
-        console.warn("Host SRS publish failed:", publishError);
-      }
-
-      // Publish COMPOSITED stream to "test" stream for FFmpeg
-      if (selectedDestinations.length > 0) {
-        try {
-          const compositedStream = compositorRef.current.getOutputStream();
-          const testPublisher = await publishToSrs(compositedStream, "test");
-          testPublisherRef.current = testPublisher;
-          saveHostRuntime({ testPublisher });
-          console.log("Published composited stream to test for FFmpeg");
-        } catch (testPublishError) {
-          console.warn("Failed to publish composited stream:", testPublishError);
-        }
-      }
-
-      await apiFetch(`/register-publisher/${currentSession.sessionId}`, {
-        method: "POST",
-        body: JSON.stringify({
-          userId: "host",
-          role: "host",
-          streamKey: hostStreamKey,
-          publishStatus,
-        }),
-      });
-
-      const started = await apiFetch(`/start-session/${currentSession.sessionId}`, {
-        method: "POST",
-      });
-
-      setSession(started.session);
-      setIsLive(true);
-      saveHostRuntime({
-        session: started.session,
-        isLive: true,
-        title: title.trim(),
-      });
-
-      if (selectedDestinations.length > 0) {
-        await startFFmpegForDestinations();
-      }
-
-      if (publishStatus === "local-preview") {
-        setError(
-          "Session started locally, but SRS publishing failed. Co-hosts can still join; check SRS before going public."
-        );
-      }
-
-      return started.session;
-    } catch (err) {
-      setError(err.message || "Failed to start Stream Together.");
-      setIsLive(false);
-      stopLocalMedia();
-      return null;
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const stopStream = async () => {
-    setIsBusy(true);
-    setError("");
-
-    await stopFFmpegForDestinations();
-
-    try {
-      if (session?.sessionId) {
-        await apiFetch(`/stop-session/${session.sessionId}`, { method: "POST" });
-      }
-    } catch (err) {
-      setError(err.message || "Failed to stop session.");
-    } finally {
-      stopLocalMedia();
-      setIsLive(false);
-      setShowInvite(false);
-      setIsBusy(false);
-      setSession((prev) =>
-        prev ? { ...prev, status: "ended", publishers: [], coHosts: [] } : prev
-      );
-      localStorage.removeItem(STREAM_TOGETHER_HOST_STATE_KEY);
-      saveHostRuntime({
-        session: null,
-        title: "",
-      });
-    }
-  };
-
-  const openInvite = async () => {
-    if (!title.trim()) {
-      setError("Enter a session title first.");
-      return;
-    }
-
-    setIsBusy(true);
-    setError("");
-
-    try {
-      const currentSession = await createInviteSession();
-      if (currentSession) setShowInvite(true);
-    } catch (err) {
-      setError(err.message || "Failed to create a co-host invite.");
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const copy = async (value, label) => {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("Clipboard API unavailable");
-      }
-
-      await navigator.clipboard.writeText(value);
-      setCopied(`${label} copied`);
-    } catch (err) {
-      setCopied(
-        `${label} could not be copied automatically. Select the link and copy it manually.`
-      );
-    }
-
-    setTimeout(() => setCopied(""), 1800);
-  };
-
-  const toggleDestination = (channelId) => {
-    const id = String(channelId);
-    setSelectedChannelIds((previous) =>
-      previous.includes(id)
-        ? previous.filter((item) => item !== id)
-        : [...previous, id]
-    );
-  };
-
-  const openChannelModal = () => {
-    loadConnectedChannels();
-    setShowChannelModal(true);
-  };
-
-  const closeChannelModal = () => {
-    setShowChannelModal(false);
-    loadConnectedChannels();
-  };
-
-  const startOAuth = (platform) => {
-    const url = `${RAW_API_BASE.replace(
-      /\/+$/,
-      ""
-    )}/api/oauth/${platform}/start?returnTo=${encodeURIComponent(
-      "/stream-together"
-    )}`;
-
-    const popupWidth = 560;
-    const popupHeight = 720;
-    const left = Math.max(0, window.screenX + (window.outerWidth - popupWidth) / 2);
-    const top = Math.max(0, window.screenY + (window.outerHeight - popupHeight) / 2);
-    const popup = window.open(
-      url,
-      "streammova-channel-connect",
-      `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
-    );
-
-    if (!popup) {
-      setError(
-        "Your browser blocked the channel connection popup. Allow popups for this site, then try again."
-      );
-      return;
-    }
-
-    popup.focus();
-    setShowChannelModal(false);
-  };
-
+  // Render
   return (
     <div className="stream-together-page">
       <div className="stream-together-shell">
@@ -1102,14 +1329,15 @@ function StreamTogetherHost({ onBack }) {
 
         <div className="stream-together-grid">
           <div className="stream-together-card">
-            {/* Hidden canvas for compositing */}
-            <canvas 
-              ref={canvasRef} 
-              style={{ display: 'none' }}
-              width="1280" 
+            {/* Hidden compositing canvas */}
+            <canvas
+              ref={canvasRef}
+              style={{ display: "none" }}
+              width="1280"
               height="720"
             />
-            
+
+            {/* Host camera preview */}
             <div className="stream-together-video">
               <video ref={videoRef} autoPlay muted playsInline />
               {!cameraActive && (
@@ -1131,31 +1359,29 @@ function StreamTogetherHost({ onBack }) {
               )}
             </div>
 
-            {/* Show composited preview when live */}
+            {/* Composited stream preview */}
             {isLive && compositorRef.current && (
               <div style={{ marginTop: 16 }}>
-                <h3 style={{ marginBottom: 8 }}>Combined Stream Preview (Sent to platforms)</h3>
-                <div className="stream-together-video" style={{ maxHeight: 360 }}>
-                  <canvas 
-                    ref={(el) => {
-                      if (el && compositorRef.current) {
-                        // Mirror the compositor canvas to this preview canvas
-                        const drawPreview = () => {
-                          const ctx = el.getContext('2d');
-                          el.width = compositorRef.current.canvas.width;
-                          el.height = compositorRef.current.canvas.height;
-                          ctx.drawImage(compositorRef.current.canvas, 0, 0);
-                          requestAnimationFrame(drawPreview);
-                        };
-                        drawPreview();
-                      }
+                <h3 style={{ marginBottom: 8 }}>
+                  Combined Stream Preview (Sent to platforms)
+                </h3>
+                <div
+                  className="stream-together-video"
+                  style={{ maxHeight: 360 }}
+                >
+                  <canvas
+                    ref={previewCanvasRef}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
                     }}
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
                 </div>
               </div>
             )}
 
+            {/* Controls */}
             <div className="stream-together-controls">
               <div className="stream-together-field">
                 <label htmlFor="stream-title">Session title</label>
@@ -1199,15 +1425,18 @@ function StreamTogetherHost({ onBack }) {
               </div>
             </div>
 
+            {/* FFmpeg status */}
             {ffmpegStatus && (
               <div className="stream-together-ffmpeg-status">
                 <i className="fas fa-satellite-dish"></i> {ffmpegStatus}
               </div>
             )}
 
+            {/* Error display */}
             {error && <div className="stream-together-error">{error}</div>}
           </div>
 
+          {/* Side panel */}
           <div className="stream-together-panel">
             <h2>Session</h2>
             <div className="stream-together-meta">
@@ -1235,13 +1464,14 @@ function StreamTogetherHost({ onBack }) {
               </div>
             </div>
 
+            {/* Destinations */}
             <h3 style={{ marginTop: 22 }}>Destinations</h3>
             <div className="stream-together-destinations">
               {connectedChannels.length === 0 ? (
                 <p className="stream-together-muted">
-                  No channels connected yet. Connect Facebook, Twitch, or YouTube
-                  before starting if you want this session sent to external
-                  platforms.
+                  No channels connected yet. Connect Facebook, Twitch, or
+                  YouTube before starting if you want this session sent to
+                  external platforms.
                 </p>
               ) : (
                 connectedChannels.map((channel) => {
@@ -1262,12 +1492,18 @@ function StreamTogetherHost({ onBack }) {
                       {channel.logo ? (
                         <img src={channel.logo} alt="" />
                       ) : (
-                        <i className={channel.icon || "fas fa-satellite-dish"}></i>
+                        <i
+                          className={
+                            channel.icon || "fas fa-satellite-dish"
+                          }
+                        ></i>
                       )}
                       <span>
                         <strong>{channel.name}</strong>
                         {(channel.displayName || channel.pageName) && (
-                          <small>{channel.displayName || channel.pageName}</small>
+                          <small>
+                            {channel.displayName || channel.pageName}
+                          </small>
                         )}
                       </span>
                     </label>
@@ -1285,15 +1521,25 @@ function StreamTogetherHost({ onBack }) {
               </button>
             </div>
 
+            {/* People */}
             <h3 style={{ marginTop: 22 }}>People</h3>
             <div className="stream-together-meta">
               {activePublishers.length === 0 && (
-                <p className="stream-together-muted">No publishers connected yet.</p>
+                <p className="stream-together-muted">
+                  No publishers connected yet.
+                </p>
               )}
               {activePublishers.map((publisher) => (
-                <div className="stream-together-person" key={publisher.streamKey}>
-                  <span>{publisher.role === "host" ? "Host" : "Co-host"}</span>
-                  <span className="stream-together-code">{publisher.streamKey}</span>
+                <div
+                  className="stream-together-person"
+                  key={publisher.streamKey}
+                >
+                  <span>
+                    {publisher.role === "host" ? "Host" : "Co-host"}
+                  </span>
+                  <span className="stream-together-code">
+                    {publisher.streamKey}
+                  </span>
                 </div>
               ))}
             </div>
@@ -1301,8 +1547,12 @@ function StreamTogetherHost({ onBack }) {
         </div>
       </div>
 
+      {/* Invite modal */}
       {showInvite && session && (
-        <div className="stream-together-modal" onClick={() => setShowInvite(false)}>
+        <div
+          className="stream-together-modal"
+          onClick={() => setShowInvite(false)}
+        >
           <div
             className="stream-together-modal-card"
             onClick={(event) => event.stopPropagation()}
@@ -1317,18 +1567,28 @@ function StreamTogetherHost({ onBack }) {
               </button>
             </div>
 
-            <InviteLink label="Co-host link" value={cohostLink} onCopy={copy} />
-            <InviteLink label="Viewer link" value={viewerLink} onCopy={copy} />
+            <InviteLink
+              label="Co-host link"
+              value={cohostLink}
+              onCopy={copy}
+            />
+            <InviteLink
+              label="Viewer link"
+              value={viewerLink}
+              onCopy={copy}
+            />
 
             <p className="stream-together-muted">
-              Co-hosts publish their camera into this session. Their video will be
-              combined with yours into a single stream for external platforms.
+              Co-hosts publish their camera into this session. Their video will
+              be combined with yours into a single stream for external
+              platforms.
             </p>
             {copied && <div className="stream-together-error">{copied}</div>}
           </div>
         </div>
       )}
 
+      {/* Channel modal */}
       <ChannelModal
         showChannelModal={showChannelModal}
         modalRef={modalRef}
@@ -1357,7 +1617,7 @@ function StreamTogetherHost({ onBack }) {
 }
 
 // =========================
-// SHARED COMPONENTS (Keep existing)
+// SHARED COMPONENTS
 // =========================
 
 function InviteLink({ label, value, onCopy }) {
@@ -1403,7 +1663,10 @@ function StreamTogetherHeader({ isLive, onBack }) {
   );
 }
 
-// Keep existing CoHostJoin and StreamViewer components unchanged
+// =========================
+// CO-HOST JOIN COMPONENT
+// =========================
+
 function CoHostJoin({ sessionId, onBack }) {
   const [session, setSession] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -1468,12 +1731,18 @@ function CoHostJoin({ sessionId, onBack }) {
 
       const data = await apiFetch(`/register-publisher/${sessionId}`, {
         method: "POST",
-        body: JSON.stringify({ userId, role: "cohost", streamKey, publishStatus }),
+        body: JSON.stringify({
+          userId,
+          role: "cohost",
+          streamKey,
+          publishStatus,
+        }),
       });
 
       setSession(data.session);
       setCoHostUserId(userId);
       setJoined(true);
+
       if (publishStatus === "local-preview") {
         setError(
           "Joined the session, but SRS publishing failed. The host can see you joined; check SRS before going public."
@@ -1487,7 +1756,7 @@ function CoHostJoin({ sessionId, onBack }) {
     }
   };
 
-  const leaveLocal = async () => {
+  const leaveLocal = () => {
     publisherRef.current?.close?.();
     publisherRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1504,7 +1773,9 @@ function CoHostJoin({ sessionId, onBack }) {
         method: "POST",
         body: JSON.stringify({ userId: coHostUserId }),
       });
-    } catch {}
+    } catch (err) {
+      console.warn("Leave session API call failed:", err);
+    }
     leaveLocal();
   };
 
@@ -1545,7 +1816,10 @@ function CoHostJoin({ sessionId, onBack }) {
                   {isBusy ? "Joining..." : "Join as Co-host"}
                 </button>
               ) : (
-                <button className="stream-together-button danger" onClick={leave}>
+                <button
+                  className="stream-together-button danger"
+                  onClick={leave}
+                >
                   <i className="fas fa-sign-out-alt"></i>
                   Leave
                 </button>
@@ -1557,10 +1831,12 @@ function CoHostJoin({ sessionId, onBack }) {
           <div className="stream-together-panel">
             <h2>{session?.title || "Co-host Invite"}</h2>
             <p className="stream-together-muted">
-              Session ID: <span className="stream-together-code">{sessionId}</span>
+              Session ID:{" "}
+              <span className="stream-together-code">{sessionId}</span>
             </p>
             <p className="stream-together-muted">
-              Your video will be combined with the host's stream for external platforms.
+              Your video will be combined with the host's stream for external
+              platforms.
             </p>
           </div>
         </div>
@@ -1568,6 +1844,10 @@ function CoHostJoin({ sessionId, onBack }) {
     </div>
   );
 }
+
+// =========================
+// STREAM VIEWER COMPONENT
+// =========================
 
 function StreamViewer({ sessionId, onBack }) {
   const [session, setSession] = useState(null);
@@ -1577,12 +1857,16 @@ function StreamViewer({ sessionId, onBack }) {
   const playerRef = useRef(null);
 
   const hostPublisher = useMemo(
-    () => session?.publishers?.find((publisher) => publisher.role === "host"),
+    () =>
+      session?.publishers?.find((publisher) => publisher.role === "host"),
     [session]
   );
 
   const coHosts = useMemo(
-    () => session?.publishers?.filter((publisher) => publisher.role === "cohost") || [],
+    () =>
+      session?.publishers?.filter(
+        (publisher) => publisher.role === "cohost"
+      ) || [],
     [session]
   );
 
@@ -1591,7 +1875,9 @@ function StreamViewer({ sessionId, onBack }) {
       .then((data) => setSession(data.session))
       .catch((err) => setError(err.message || "Stream not found."));
 
-    return () => playerRef.current?.close?.();
+    return () => {
+      playerRef.current?.close?.();
+    };
   }, [sessionId]);
 
   const play = async () => {
@@ -1603,7 +1889,10 @@ function StreamViewer({ sessionId, onBack }) {
     try {
       setError("");
       playerRef.current?.close?.();
-      playerRef.current = await playFromSrs(videoRef.current, hostPublisher.streamKey);
+      playerRef.current = await playFromSrs(
+        videoRef.current,
+        hostPublisher.streamKey
+      );
       setIsPlaying(true);
     } catch (err) {
       setError(err.message || "Failed to play stream.");
@@ -1613,14 +1902,19 @@ function StreamViewer({ sessionId, onBack }) {
   return (
     <div className="stream-together-page">
       <div className="stream-together-shell">
-        <StreamTogetherHeader isLive={session?.status === "live"} onBack={onBack} />
+        <StreamTogetherHeader
+          isLive={session?.status === "live"}
+          onBack={onBack}
+        />
         <div className="stream-together-grid stream-together-viewer-grid">
           <div className="stream-together-card">
             <div className="stream-together-stream-grid">
               <div className="stream-together-stream-primary">
                 <div className="stream-together-stream-label">
                   <span>Host</span>
-                  <small>{hostPublisher ? "Live host feed" : "Waiting for host"}</small>
+                  <small>
+                    {hostPublisher ? "Live host feed" : "Waiting for host"}
+                  </small>
                 </div>
                 <div className="stream-together-video">
                   <video ref={videoRef} autoPlay playsInline controls />
@@ -1650,10 +1944,17 @@ function StreamViewer({ sessionId, onBack }) {
                     </div>
                   ) : (
                     coHosts.map((publisher) => (
-                      <div className="stream-together-cohost-item" key={publisher.streamKey}>
-                        <strong>{publisher.userId || publisher.streamKey}</strong>
+                      <div
+                        className="stream-together-cohost-item"
+                        key={publisher.streamKey}
+                      >
+                        <strong>
+                          {publisher.userId || publisher.streamKey}
+                        </strong>
                         <p className="stream-together-muted">
-                          {publisher.publishStatus === "publishing" ? "Live now" : "Preview mode"}
+                          {publisher.publishStatus === "publishing"
+                            ? "Live now"
+                            : "Preview mode"}
                         </p>
                       </div>
                     ))
@@ -1663,7 +1964,10 @@ function StreamViewer({ sessionId, onBack }) {
             </div>
 
             <div className="stream-together-actions" style={{ marginTop: 18 }}>
-              <button className="stream-together-button primary" onClick={play}>
+              <button
+                className="stream-together-button primary"
+                onClick={play}
+              >
                 <i className="fas fa-play"></i>
                 Play Stream
               </button>
@@ -1674,7 +1978,8 @@ function StreamViewer({ sessionId, onBack }) {
           <div className="stream-together-panel">
             <h2>Now Watching</h2>
             <p className="stream-together-muted">
-              Session ID: <span className="stream-together-code">{sessionId}</span>
+              Session ID:{" "}
+              <span className="stream-together-code">{sessionId}</span>
             </p>
             <div className="stream-together-meta">
               <div className="stream-together-meta-item">
