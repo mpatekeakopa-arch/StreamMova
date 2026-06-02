@@ -6,6 +6,8 @@ import Welcome from "./pages/welcome";
 import Login from "./pages/login";
 import Register from "./pages/Register";
 import Dashboard from "./components/Dashboard/Dashboard";
+import StreamTogether from "./components/Dashboard/StreamTogether/StreamTogether";  // ADD THIS IMPORT
+
 import RequireAuth from "./auth/RequireAuth";
 
 function App() {
@@ -26,6 +28,11 @@ function App() {
             </RequireAuth>
           }
         />
+
+        {/* ADD THIS - Stream Together WITHOUT protection */}
+        <Route path="/stream-together/*" element={<StreamTogether />} />
+        <Route path="/cohost-join/:sessionId" element={<StreamTogether />} />
+        <Route path="/watch/:sessionId" element={<StreamTogether />} />
 
         <Route path="*" element={<Navigate to="/welcome" replace />} />
       </Routes>
