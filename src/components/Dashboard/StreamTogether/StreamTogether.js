@@ -188,6 +188,7 @@ class StreamCompositor {
     this.videos = [];
     this.animationId = null;
     this.outputStream = null;
+    this._canvasStream = null;
     this.audioContext = null;
     this.audioDestination = null;
     this.audioSources = [];
@@ -203,8 +204,6 @@ class StreamCompositor {
     console.log(`Compositor: Added ${label}. Total videos: ${this.videos.length}`);
     
     this._addAudioSource(video);
-    
-    // Rebuild output stream when participants change (FIX E)
     this._rebuildOutputStream();
     
     if (!this.isRunning) {
@@ -217,8 +216,6 @@ class StreamCompositor {
     this.videos = this.videos.filter(v => v.video !== video);
     this._removeAudioSource(video);
     console.log(`Compositor: Removed video. Remaining: ${this.videos.length}`);
-    
-    // Rebuild output stream when participants change (FIX E)
     this._rebuildOutputStream();
   }
 
@@ -258,22 +255,37 @@ class StreamCompositor {
     }
   }
 
-  // FIX E: Rebuild audio output when participants join/leave
   _rebuildOutputStream() {
-    if (this.outputStream) {
-      // Stop old tracks
-      this.outputStream.getTracks().forEach(track => track.stop());
+    // Create canvas stream ONCE if it doesn't exist
+    if (!this._canvasStream) {
+      this._canvasStream = this.canvas.captureStream(30);
+      console.log('Compositor: Created persistent canvas stream');
     }
     
-    // Create fresh canvas stream
-    const canvasStream = this.canvas.captureStream(30);
-    const videoTrack = canvasStream.getVideoTracks()[0];
+    if (this.outputStream) {
+      const oldTracks = this.outputStream.getTracks();
+      oldTracks.forEach(track => {
+        track.stop();
+        this.outputStream.removeTrack(track);
+      });
+    } else {
+      this.outputStream = new MediaStream();
+    }
     
-    this.outputStream = new MediaStream();
-    this.outputStream.addTrack(videoTrack);
+    // Add video track from the persistent canvas stream
+    const videoTrack = this._canvasStream.getVideoTracks()[0];
+    if (videoTrack && this.outputStream.getVideoTracks().length === 0) {
+      this.outputStream.addTrack(videoTrack);
+    }
+    
+    // Remove old audio tracks
+    this.outputStream.getAudioTracks().forEach(track => {
+      track.stop();
+      this.outputStream.removeTrack(track);
+    });
     
     // Add mixed audio if available
-    if (this.audioDestination) {
+    if (this.audioDestination && this.audioDestination.stream.getAudioTracks().length > 0) {
       this.audioDestination.stream.getAudioTracks().forEach(track => {
         this.outputStream.addTrack(track);
       });
@@ -290,7 +302,8 @@ class StreamCompositor {
     console.log('Compositor: Rebuilt output stream with', {
       videoTracks: this.outputStream.getVideoTracks().length,
       audioTracks: this.outputStream.getAudioTracks().length,
-      participants: this.videos.length
+      participants: this.videos.length,
+      streamActive: this.outputStream.active
     });
   }
 
@@ -318,7 +331,6 @@ class StreamCompositor {
         }
       }
 
-      // Call the onFrame callback for preview
       if (this.onFrame) {
         this.onFrame(this.canvas);
       }
@@ -375,17 +387,16 @@ class StreamCompositor {
     }
   }
 
-  // FIX F: Removed mirroring from the final broadcast
   _drawVideoFrame(videoObj, x, y, width, height) {
     const video = videoObj.video;
     if (!video || video.readyState < 2) return;
 
-    // Draw without mirroring for broadcast
+    // Draw without mirroring for broadcast (FIX F)
     this.ctx.drawImage(video, x, y, width, height);
   }
 
   getOutputStream() {
-    if (!this.outputStream) {
+    if (!this.outputStream || this.outputStream.getVideoTracks().length === 0) {
       this._rebuildOutputStream();
     }
     return this.outputStream;
@@ -396,6 +407,10 @@ class StreamCompositor {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
+    }
+    if (this._canvasStream) {
+      this._canvasStream.getTracks().forEach(track => track.stop());
+      this._canvasStream = null;
     }
     if (this.outputStream) {
       this.outputStream.getTracks().forEach(track => track.stop());
@@ -521,19 +536,16 @@ function StreamTogetherHost({ onBack }) {
   const removeCoHostStream = (streamKey) => {
     const video = cohostVideoRefs.current[streamKey];
     if (video) {
-      // Remove from compositor
       if (compositorRef.current) {
         compositorRef.current.removeVideo(video);
       }
       
-      // Close SRS player
       const player = cohostPlayersRef.current[streamKey];
       if (player) {
         player.close();
         delete cohostPlayersRef.current[streamKey];
       }
       
-      // Stop and remove video element
       video.srcObject?.getTracks().forEach(t => t.stop());
       video.remove();
       delete cohostVideoRefs.current[streamKey];
@@ -556,7 +568,6 @@ function StreamTogetherHost({ onBack }) {
         const player = await playFromSrs(video, publisher.streamKey);
         cohostPlayersRef.current[publisher.streamKey] = player;
         
-        // Wait for video to be ready before adding to compositor
         video.addEventListener('loadedmetadata', () => {
           if (compositorRef.current) {
             const label = `Co-host ${Object.keys(cohostVideoRefs.current).length}`;
@@ -565,7 +576,6 @@ function StreamTogetherHost({ onBack }) {
           }
         }, { once: true });
         
-        // Force play
         await video.play().catch(() => {});
         
         console.log(`Playing co-host stream: ${publisher.streamKey}`);
@@ -584,7 +594,6 @@ function StreamTogetherHost({ onBack }) {
     if (!compositorRef.current) {
       compositorRef.current = new StreamCompositor(canvasRef.current, 1280, 720);
       
-      // Set up preview callback
       compositorRef.current.onFrame = (compositorCanvas) => {
         if (previewCanvasRef.current) {
           const previewCtx = previewCanvasRef.current.getContext('2d');
@@ -948,13 +957,13 @@ function StreamTogetherHost({ onBack }) {
     return created.session;
   };
 
+  // FIX C: FFmpeg consumes mixedStreamKey
   const startFFmpegForDestinations = async (mixedStreamKey) => {
     const saved = readStoredChannels();
     const platformsStarted = [];
 
     for (const channel of selectedDestinations) {
       try {
-        // FIX C: FFmpeg consumes mixedStreamKey, not raw host stream
         if (channel.platform === "twitch" && saved.twitchStreamKey) {
           await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
             method: "POST",
@@ -962,7 +971,7 @@ function StreamTogetherHost({ onBack }) {
             body: JSON.stringify({
               channelId: session?.sessionId || "streamtogether",
               streamKey: saved.twitchStreamKey,
-              srsStreamKey: mixedStreamKey, // Pass the mixed stream key
+              srsStreamKey: mixedStreamKey,
             }),
           });
           platformsStarted.push("Twitch");
@@ -978,7 +987,7 @@ function StreamTogetherHost({ onBack }) {
               refreshToken: saved.youtubeRefreshToken,
               title: title || "Stream Together Live",
               description: "Live from Stream Together",
-              srsStreamKey: mixedStreamKey, // Pass the mixed stream key
+              srsStreamKey: mixedStreamKey,
             }),
           });
           platformsStarted.push("YouTube");
@@ -999,7 +1008,7 @@ function StreamTogetherHost({ onBack }) {
                 description: "Live from Stream Together",
                 pageId: page.id,
                 pageAccessToken: page.access_token,
-                srsStreamKey: mixedStreamKey, // Pass the mixed stream key
+                srsStreamKey: mixedStreamKey,
               }),
             });
             platformsStarted.push("Facebook");
@@ -1086,10 +1095,29 @@ function StreamTogetherHost({ onBack }) {
       // 2. Publish COMPOSITED stream to mixedStreamKey for FFmpeg and viewers
       if (selectedDestinations.length > 0) {
         try {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Wait for compositor to start drawing (at least a few frames)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Force rebuild to ensure stream is fresh
+          if (compositorRef.current) {
+            compositorRef.current._rebuildOutputStream();
+          }
           
           const compositedStream = compositorRef.current.getOutputStream();
           
+          // Verify stream has tracks
+          if (compositedStream.getVideoTracks().length === 0) {
+            throw new Error("Composited stream has no video track - compositor may not be drawing yet");
+          }
+          
+          console.log('Composited stream ready:', {
+            video: compositedStream.getVideoTracks().length,
+            audio: compositedStream.getAudioTracks().length,
+            active: compositedStream.active,
+            videoReadyState: compositedStream.getVideoTracks()[0]?.readyState
+          });
+          
+          // Add host audio if needed
           if (stream.getAudioTracks().length > 0 && compositedStream.getAudioTracks().length === 0) {
             stream.getAudioTracks().forEach(track => {
               compositedStream.addTrack(track.clone());
@@ -1104,7 +1132,7 @@ function StreamTogetherHost({ onBack }) {
           const mixedPublisher = await publishToSrs(compositedStream, mixedStreamKey);
           mixedPublisherRef.current = mixedPublisher;
           saveHostRuntime({ mixedPublisher });
-          console.log(`Published COMPOSITED stream to '${mixedStreamKey}' for FFmpeg and viewers`);
+          console.log(`Published COMPOSITED stream to '${mixedStreamKey}'`);
           setFfmpegStatus("Composited stream ready for external platforms");
         } catch (mixedPublishError) {
           console.error("Failed to publish composited stream:", mixedPublishError);
@@ -1284,7 +1312,6 @@ function StreamTogetherHost({ onBack }) {
 
         <div className="stream-together-grid">
           <div className="stream-together-card">
-            {/* Hidden canvas for compositing */}
             <canvas 
               ref={canvasRef} 
               style={{ display: 'none' }}
@@ -1313,7 +1340,6 @@ function StreamTogetherHost({ onBack }) {
               )}
             </div>
 
-            {/* Preview of composited stream */}
             <div style={{ marginTop: 16, display: isLive ? 'block' : 'none' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>Combined Stream (sent to platforms)</h3>
