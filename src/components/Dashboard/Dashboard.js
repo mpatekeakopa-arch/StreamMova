@@ -13,19 +13,37 @@ import { useAuth } from "../../auth/AuthProvider";
 const API_BASE_URL =
   process.env.REACT_APP_API_BASE_URL || "https://api.streammova.xyz";
 
+const dashboardRuntime = {
+  cameraStream: null,
+  isCameraOn: false,
+  isStreaming: false,
+  liveStatus: "",
+  facebookLiveActive: false,
+  twitchLiveActive: false,
+  youtubeLiveActive: false,
+  uploadedVideo: null,
+  recordedVideo: null,
+};
+
 function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("dashboard");
 
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [cameraStream, setCameraStream] = useState(null);
-  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(dashboardRuntime.isStreaming);
+  const [cameraStream, setCameraStream] = useState(dashboardRuntime.cameraStream);
+  const [isCameraOn, setIsCameraOn] = useState(dashboardRuntime.isCameraOn);
   const [error, setError] = useState("");
-  const [liveStatus, setLiveStatus] = useState("");
+  const [liveStatus, setLiveStatus] = useState(dashboardRuntime.liveStatus);
 
-  const [facebookLiveActive, setFacebookLiveActive] = useState(false);
-  const [twitchLiveActive, setTwitchLiveActive] = useState(false);
-  const [youtubeLiveActive, setYoutubeLiveActive] = useState(false);
+  const [facebookLiveActive, setFacebookLiveActive] = useState(
+    dashboardRuntime.facebookLiveActive
+  );
+  const [twitchLiveActive, setTwitchLiveActive] = useState(
+    dashboardRuntime.twitchLiveActive
+  );
+  const [youtubeLiveActive, setYoutubeLiveActive] = useState(
+    dashboardRuntime.youtubeLiveActive
+  );
 
   const [facebookPages, setFacebookPages] = useState([]);
   const [selectedFacebookPageId, setSelectedFacebookPageId] = useState("");
@@ -61,13 +79,17 @@ function Dashboard() {
   });
 
   const uploadInputRef = useRef(null);
-  const [uploadedVideo, setUploadedVideo] = useState(null);
+  const [uploadedVideo, setUploadedVideo] = useState(
+    dashboardRuntime.uploadedVideo
+  );
   const [uploadTitle, setUploadTitle] = useState("");
 
   const mediaRecorderRef = useRef(null);
   const recordChunksRef = useRef([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordedVideo, setRecordedVideo] = useState(null);
+  const [recordedVideo, setRecordedVideo] = useState(
+    dashboardRuntime.recordedVideo
+  );
 
   const [scheduleForm, setScheduleForm] = useState({
     title: "",
@@ -94,15 +116,34 @@ function Dashboard() {
   // Keep refs in sync with state
   useEffect(() => {
     cameraStreamRef.current = cameraStream;
+    dashboardRuntime.cameraStream = cameraStream;
   }, [cameraStream]);
 
   useEffect(() => {
     uploadedVideoRef.current = uploadedVideo;
+    dashboardRuntime.uploadedVideo = uploadedVideo;
   }, [uploadedVideo]);
 
   useEffect(() => {
     recordedVideoRef.current = recordedVideo;
+    dashboardRuntime.recordedVideo = recordedVideo;
   }, [recordedVideo]);
+
+  useEffect(() => {
+    dashboardRuntime.isCameraOn = isCameraOn;
+    dashboardRuntime.isStreaming = isStreaming;
+    dashboardRuntime.liveStatus = liveStatus;
+    dashboardRuntime.facebookLiveActive = facebookLiveActive;
+    dashboardRuntime.twitchLiveActive = twitchLiveActive;
+    dashboardRuntime.youtubeLiveActive = youtubeLiveActive;
+  }, [
+    isCameraOn,
+    isStreaming,
+    liveStatus,
+    facebookLiveActive,
+    twitchLiveActive,
+    youtubeLiveActive,
+  ]);
 
   const channelId = authUser?.id || "test";
 
@@ -192,16 +233,19 @@ function Dashboard() {
         const data = await response.json();
         
         if (data.success && data.isStreaming) {
-          // Restore streaming state for each platform
           if (data.facebook?.active) {
             setFacebookLiveActive(true);
             setIsStreaming(true);
+            dashboardRuntime.facebookLiveActive = true;
+            dashboardRuntime.isStreaming = true;
             setLiveStatus(`Facebook Live active (since ${new Date(data.facebook.startedAt).toLocaleTimeString()})`);
           }
           
           if (data.twitch?.active) {
             setTwitchLiveActive(true);
             setIsStreaming(true);
+            dashboardRuntime.twitchLiveActive = true;
+            dashboardRuntime.isStreaming = true;
             setLiveStatus(prev => 
               prev ? `${prev} | Twitch Live active` : `Twitch Live active (since ${new Date(data.twitch.startedAt).toLocaleTimeString()})`
             );
@@ -210,6 +254,8 @@ function Dashboard() {
           if (data.youtube?.active) {
             setYoutubeLiveActive(true);
             setIsStreaming(true);
+            dashboardRuntime.youtubeLiveActive = true;
+            dashboardRuntime.isStreaming = true;
             setLiveStatus(prev => 
               prev ? `${prev} | YouTube Live active` : `YouTube Live active (since ${new Date(data.youtube.startedAt).toLocaleTimeString()})`
             );
@@ -226,19 +272,15 @@ function Dashboard() {
   // Heartbeat to monitor active streams
   useEffect(() => {
     if (isStreaming && (facebookLiveActive || twitchLiveActive || youtubeLiveActive)) {
-      // Clear existing interval
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
       
-      // Start heartbeat every 15 seconds
       heartbeatIntervalRef.current = setInterval(async () => {
         try {
           const response = await fetch(`${API_BASE_URL}/api/stream/heartbeat/${channelId}`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               facebook: facebookLiveActive,
               twitch: twitchLiveActive,
@@ -248,31 +290,32 @@ function Dashboard() {
           
           const data = await response.json();
           
-          // Update status if streams stopped unexpectedly
           if (data.facebook?.stopped && facebookLiveActive) {
             setFacebookLiveActive(false);
+            dashboardRuntime.facebookLiveActive = false;
             setLiveStatus('Facebook stream stopped unexpectedly');
           }
           
           if (data.twitch?.stopped && twitchLiveActive) {
             setTwitchLiveActive(false);
+            dashboardRuntime.twitchLiveActive = false;
             setLiveStatus('Twitch stream stopped unexpectedly');
           }
           
           if (data.youtube?.stopped && youtubeLiveActive) {
             setYoutubeLiveActive(false);
+            dashboardRuntime.youtubeLiveActive = false;
             setLiveStatus('YouTube stream stopped unexpectedly');
           }
           
-          // Update overall streaming status
           const stillStreaming = 
             (facebookLiveActive && !data.facebook?.stopped) ||
             (twitchLiveActive && !data.twitch?.stopped) ||
             (youtubeLiveActive && !data.youtube?.stopped);
           
           if (!stillStreaming && !data.facebook?.stopped && !data.twitch?.stopped && !data.youtube?.stopped) {
-            // All platforms that were active have stopped
             setIsStreaming(false);
+            dashboardRuntime.isStreaming = false;
           }
         } catch (err) {
           console.error('Heartbeat check failed:', err);
@@ -286,7 +329,6 @@ function Dashboard() {
         }
       };
     } else {
-      // Clear heartbeat when not streaming
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = null;
@@ -476,8 +518,10 @@ function Dashboard() {
       });
 
       setCameraStream(stream);
+      dashboardRuntime.cameraStream = stream;
       streamRef.current = stream;
       setIsCameraOn(true);
+      dashboardRuntime.isCameraOn = true;
 
       return stream;
     } catch (err) {
@@ -496,6 +540,9 @@ function Dashboard() {
       setIsCameraOn(false);
       setIsStreaming(false);
       setCameraStream(null);
+      dashboardRuntime.cameraStream = null;
+      dashboardRuntime.isCameraOn = false;
+      dashboardRuntime.isStreaming = false;
       streamRef.current = null;
 
       return null;
@@ -521,6 +568,8 @@ function Dashboard() {
     streamRef.current = null;
     setCameraStream(null);
     setIsCameraOn(false);
+    dashboardRuntime.cameraStream = null;
+    dashboardRuntime.isCameraOn = false;
   };
 
   const startFacebookLive = async () => {
@@ -551,6 +600,7 @@ function Dashboard() {
     }
 
     setFacebookLiveActive(true);
+    dashboardRuntime.facebookLiveActive = true;
     setLiveStatus(`Facebook Live started. Video ID: ${data.liveVideoId}`);
 
     return data;
@@ -576,6 +626,7 @@ function Dashboard() {
     }
 
     setFacebookLiveActive(false);
+    dashboardRuntime.facebookLiveActive = false;
     setLiveStatus("Facebook Live stopped.");
 
     return data;
@@ -604,6 +655,7 @@ function Dashboard() {
     }
 
     setTwitchLiveActive(true);
+    dashboardRuntime.twitchLiveActive = true;
     setLiveStatus(`Twitch Live started. Container: ${data.containerName}`);
 
     return data;
@@ -629,6 +681,7 @@ function Dashboard() {
     }
 
     setTwitchLiveActive(false);
+    dashboardRuntime.twitchLiveActive = false;
     setLiveStatus("Twitch Live stopped.");
 
     return data;
@@ -684,6 +737,7 @@ const startYouTubeLive = async () => {
       }
 
       setYoutubeLiveActive(true);
+      dashboardRuntime.youtubeLiveActive = true;
       setYoutubeStreamKey(retryData.streamKey || "");
       setYoutubeRtmpUrl(retryData.rtmpUrl || "");
       setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
@@ -696,6 +750,7 @@ const startYouTubeLive = async () => {
     }
 
     setYoutubeLiveActive(true);
+    dashboardRuntime.youtubeLiveActive = true;
     setYoutubeStreamKey(data.streamKey || "");
     setYoutubeRtmpUrl(data.rtmpUrl || "");
     setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
@@ -727,6 +782,7 @@ const startYouTubeLive = async () => {
     }
 
     setYoutubeLiveActive(false);
+    dashboardRuntime.youtubeLiveActive = false;
     setLiveStatus("YouTube Live stopped.");
 
     return data;
@@ -752,6 +808,10 @@ const startYouTubeLive = async () => {
       setFacebookLiveActive(false);
       setTwitchLiveActive(false);
       setYoutubeLiveActive(false);
+      dashboardRuntime.isStreaming = false;
+      dashboardRuntime.facebookLiveActive = false;
+      dashboardRuntime.twitchLiveActive = false;
+      dashboardRuntime.youtubeLiveActive = false;
     }
   };
 
@@ -787,6 +847,7 @@ const startYouTubeLive = async () => {
         }
 
         setIsStreaming(true);
+        dashboardRuntime.isStreaming = true;
 
         const livePlatforms = [];
         if (hasFacebook) livePlatforms.push("Facebook");
@@ -801,6 +862,7 @@ const startYouTubeLive = async () => {
       console.error("stream toggle failed:", err);
       setError(err.message || "Failed to start or stop stream.");
       setIsStreaming(false);
+      dashboardRuntime.isStreaming = false;
     }
   };
 
@@ -1198,7 +1260,8 @@ const startYouTubeLive = async () => {
     );
   }, [twitchLiveActive, facebookLiveActive, youtubeLiveActive]);
 
-  // Cleanup on unmount – only clean local resources
+  // Keep live media running while users move around the app.
+  // Cleanup on unmount – only clean local resources, NOT backend streams
   useEffect(() => {
     return () => {
       // Clear heartbeat interval
@@ -1207,26 +1270,10 @@ const startYouTubeLive = async () => {
         heartbeatIntervalRef.current = null;
       }
       
-      // Only stop local camera/media resources
-      const stream = streamRef.current || cameraStreamRef.current;
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      streamRef.current = null;
-
-      if (uploadedVideoRef.current?.url) {
-        URL.revokeObjectURL(uploadedVideoRef.current.url);
-      }
-      if (recordedVideoRef.current?.url) {
-        URL.revokeObjectURL(recordedVideoRef.current.url);
-      }
-
-      if (scheduleTimeoutRef.current) {
-        clearTimeout(scheduleTimeoutRef.current);
-      }
+      streamRef.current = dashboardRuntime.cameraStream;
       
-      // NOTE: Backend streams are NOT stopped here
-      // They persist and can be stopped when user returns
+      // NOTE: We do NOT stop camera tracks on unmount to keep stream alive
+      // while user navigates between pages. Backend streams persist independently.
     };
   }, []);
 
@@ -1332,7 +1379,15 @@ const startYouTubeLive = async () => {
             cancelSchedule={cancelSchedule}
           />
 
-          <Analytics connectedChannels={connectedChannels} />
+          <Analytics
+            connectedChannels={connectedChannels}
+            isStreaming={isStreaming}
+            isCameraOn={isCameraOn}
+            isRecording={isRecording}
+            uploadedVideo={uploadedVideo}
+            recordedVideo={recordedVideo}
+            scheduleStatus={scheduleStatus}
+          />
         </div>
       </div>
     </div>
