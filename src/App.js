@@ -28,7 +28,7 @@ function App() {
           }
         />
 
-        {/* Stream Together routes - BEFORE the wildcard */}
+        {/* Stream Together routes - NO auth required */}
         <Route path="/stream-together" element={<StreamTogether />} />
         <Route path="/cohost-join/:sessionId" element={<StreamTogether />} />
         <Route path="/watch/:sessionId" element={<StreamTogether />} />
