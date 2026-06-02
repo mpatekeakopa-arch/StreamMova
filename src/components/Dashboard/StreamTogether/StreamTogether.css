@@ -462,3 +462,9 @@
     flex-direction: column;
   }
 }
+
+.stream-together-video-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stream-together-video { position: relative; aspect-ratio: 16/9; background: #0a0a1a; border-radius: 12px; overflow: hidden; }
+.stream-together-video video { width: 100%; height: 100%; object-fit: cover; }
+.stream-together-video .stream-together-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+@media (max-width: 768px) { .stream-together-video-grid { grid-template-columns: 1fr; } }
