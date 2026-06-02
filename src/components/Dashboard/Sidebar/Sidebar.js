@@ -1,9 +1,7 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
 import "./Sidebar.css";
 
 function Sidebar({ isSidebarOpen, activeNav, toggleSidebar, handleNavClick }) {
-  const navigate = useNavigate();
 
   return (
     <>
