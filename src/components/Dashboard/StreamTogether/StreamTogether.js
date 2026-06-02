@@ -527,39 +527,57 @@ function StreamTogetherHost({ onBack }) {
     
     if (!compositorRef.current) {
       compositorRef.current = new StreamCompositor(canvasRef.current, 1280, 720);
+      console.log("Compositor initialized");
     }
 
     if (videoRef.current && videoRef.current.srcObject) {
       compositorRef.current.addVideo(videoRef.current, 'Host');
+      console.log("Added host video to compositor");
     }
 
     Object.entries(cohostVideoRefs.current).forEach(([key, video]) => {
       if (video.srcObject) {
         compositorRef.current.addVideo(video, 'Co-host');
+        console.log("Added co-host video to compositor:", key);
       }
     });
   };
 
-  // Preview canvas renderer - FIXED: removed compositorRef.current from deps
+  // Preview canvas renderer - runs continuously when live
   useEffect(() => {
-    const compositor = compositorRef.current;
-    const previewCanvas = previewCanvasRef.current;
-    
-    if (!compositor || !previewCanvas) return;
+    if (!isLive) return;
     
     let animId;
+    let isRunning = true;
+    
     const renderPreview = () => {
-      if (compositor && previewCanvas) {
+      if (!isRunning) return;
+      
+      const compositor = compositorRef.current;
+      const previewCanvas = previewCanvasRef.current;
+      
+      if (compositor && previewCanvas && compositor.canvas) {
         const ctx = previewCanvas.getContext('2d');
-        previewCanvas.width = compositor.canvas.width;
-        previewCanvas.height = compositor.canvas.height;
+        // Only resize if needed to avoid flicker
+        if (previewCanvas.width !== compositor.canvas.width || 
+            previewCanvas.height !== compositor.canvas.height) {
+          previewCanvas.width = compositor.canvas.width;
+          previewCanvas.height = compositor.canvas.height;
+        }
         ctx.drawImage(compositor.canvas, 0, 0);
       }
+      
       animId = requestAnimationFrame(renderPreview);
     };
-    renderPreview();
+    
+    // Small delay to ensure compositor is initialized
+    const startDelay = setTimeout(() => {
+      renderPreview();
+    }, 200);
     
     return () => {
+      isRunning = false;
+      clearTimeout(startDelay);
       if (animId) cancelAnimationFrame(animId);
     };
   }, [isLive]);
@@ -1280,11 +1298,26 @@ function StreamTogetherHost({ onBack }) {
                     </button>
                   </div>
                 </div>
-                <div className="stream-together-video" style={{ maxHeight: 360 }}>
+                <div className="stream-together-video" style={{ maxHeight: 360, border: '2px solid rgba(106, 17, 203, 0.3)' }}>
                   <canvas 
                     ref={previewCanvasRef}
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    width="1280"
+                    height="720"
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      objectFit: 'contain',
+                      display: 'block'
+                    }}
                   />
+                  {(!compositorRef.current || compositorRef.current.videos.length === 0) && (
+                    <div className="stream-together-placeholder">
+                      <div>
+                        <i className="fas fa-spinner fa-spin"></i>
+                        <strong>Preparing combined stream...</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
