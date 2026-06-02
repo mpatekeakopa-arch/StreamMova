@@ -28,18 +28,12 @@ function App() {
           }
         />
 
-        <Route
-          path="/stream-together"
-          element={
-            <RequireAuth>
-              <StreamTogether />
-            </RequireAuth>
-          }
-        />
-
+        {/* Stream Together routes - BEFORE the wildcard */}
+        <Route path="/stream-together" element={<StreamTogether />} />
         <Route path="/cohost-join/:sessionId" element={<StreamTogether />} />
         <Route path="/watch/:sessionId" element={<StreamTogether />} />
 
+        {/* Wildcard MUST be last */}
         <Route path="*" element={<Navigate to="/welcome" replace />} />
       </Routes>
     </div>
