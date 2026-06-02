@@ -1845,6 +1845,7 @@ function StreamViewer({ sessionId, onBack }) {
               <div className="stream-together-meta-item">
                 <span>Status</span>
                 <strong>{session?.status || "loading"}</strong>
+                
               </div>
             </div>
           </div>
