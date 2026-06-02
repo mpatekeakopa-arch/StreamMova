@@ -193,6 +193,7 @@ class StreamCompositor {
     this.audioSources = [];
     this.layout = 'side-by-side';
     this.isRunning = false;
+    this.onFrame = null; // Callback for preview
   }
 
   addVideo(video, label = '') {
@@ -273,6 +274,11 @@ class StreamCompositor {
         } else {
           this._drawPIP();
         }
+      }
+
+      // Call the onFrame callback for preview
+      if (this.onFrame) {
+        this.onFrame(this.canvas);
       }
 
       this.animationId = requestAnimationFrame(drawFrame);
@@ -391,6 +397,7 @@ class StreamCompositor {
     });
     this.audioSources = [];
     this.videos = [];
+    this.onFrame = null;
   }
 }
 
@@ -450,6 +457,7 @@ function StreamTogetherHost({ onBack }) {
   const cohostVideoRefs = useRef({});
   const cohostPlayersRef = useRef({});
   const modalRef = useRef(null);
+  const previewAnimRef = useRef(null);
 
   const cohostLink = session
     ? `${window.location.origin}/cohost-join/${session.sessionId}`
@@ -510,10 +518,17 @@ function StreamTogetherHost({ onBack }) {
         const player = await playFromSrs(video, publisher.streamKey);
         cohostPlayersRef.current[publisher.streamKey] = player;
         
-        if (compositorRef.current) {
-          const label = `Co-host ${Object.keys(cohostVideoRefs.current).length}`;
-          compositorRef.current.addVideo(video, label);
-        }
+        // Wait for video to be ready before adding to compositor
+        video.addEventListener('loadedmetadata', () => {
+          if (compositorRef.current) {
+            const label = `Co-host ${Object.keys(cohostVideoRefs.current).length}`;
+            compositorRef.current.addVideo(video, label);
+            console.log(`Added co-host to compositor: ${publisher.streamKey}`);
+          }
+        }, { once: true });
+        
+        // Force play
+        await video.play().catch(() => {});
         
         console.log(`Playing co-host stream: ${publisher.streamKey}`);
       } catch (err) {
@@ -523,11 +538,28 @@ function StreamTogetherHost({ onBack }) {
   };
 
   const setupCompositor = () => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current) {
+      console.warn("Canvas ref not available for compositor");
+      return;
+    }
     
     if (!compositorRef.current) {
       compositorRef.current = new StreamCompositor(canvasRef.current, 1280, 720);
-      console.log("Compositor initialized");
+      
+      // Set up preview callback
+      compositorRef.current.onFrame = (compositorCanvas) => {
+        if (previewCanvasRef.current) {
+          const previewCtx = previewCanvasRef.current.getContext('2d');
+          if (previewCanvasRef.current.width !== compositorCanvas.width ||
+              previewCanvasRef.current.height !== compositorCanvas.height) {
+            previewCanvasRef.current.width = compositorCanvas.width;
+            previewCanvasRef.current.height = compositorCanvas.height;
+          }
+          previewCtx.drawImage(compositorCanvas, 0, 0);
+        }
+      };
+      
+      console.log("Compositor initialized with preview callback");
     }
 
     if (videoRef.current && videoRef.current.srcObject) {
@@ -543,42 +575,15 @@ function StreamTogetherHost({ onBack }) {
     });
   };
 
-  // Preview canvas renderer - runs continuously when live
+  // Start/stop preview when live state changes
   useEffect(() => {
-    if (!isLive) return;
-    
-    let animId;
-    let isRunning = true;
-    
-    const renderPreview = () => {
-      if (!isRunning) return;
-      
-      const compositor = compositorRef.current;
-      const previewCanvas = previewCanvasRef.current;
-      
-      if (compositor && previewCanvas && compositor.canvas) {
-        const ctx = previewCanvas.getContext('2d');
-        // Only resize if needed to avoid flicker
-        if (previewCanvas.width !== compositor.canvas.width || 
-            previewCanvas.height !== compositor.canvas.height) {
-          previewCanvas.width = compositor.canvas.width;
-          previewCanvas.height = compositor.canvas.height;
-        }
-        ctx.drawImage(compositor.canvas, 0, 0);
-      }
-      
-      animId = requestAnimationFrame(renderPreview);
-    };
-    
-    // Small delay to ensure compositor is initialized
-    const startDelay = setTimeout(() => {
-      renderPreview();
-    }, 200);
+    if (isLive && compositorRef.current && previewCanvasRef.current) {
+      console.log("Starting preview renderer");
+      // The onFrame callback in compositor handles the preview now
+    }
     
     return () => {
-      isRunning = false;
-      clearTimeout(startDelay);
-      if (animId) cancelAnimationFrame(animId);
+      // Cleanup handled by compositor.stop()
     };
   }, [isLive]);
 
@@ -1034,7 +1039,7 @@ function StreamTogetherHost({ onBack }) {
       // 2. Publish COMPOSITED stream (host + co-hosts) to "test" for FFmpeg
       if (selectedDestinations.length > 0) {
         try {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 500));
           
           const compositedStream = compositorRef.current.getOutputStream();
           
@@ -1260,67 +1265,58 @@ function StreamTogetherHost({ onBack }) {
               )}
             </div>
 
-            {/* Preview of composited stream */}
-            {isLive && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <h3 style={{ margin: 0 }}>Combined Stream (sent to platforms)</h3>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      className="stream-together-button"
-                      onClick={() => {
-                        setLayoutMode("side-by-side");
-                        compositorRef.current?.setLayout("side-by-side");
-                      }}
-                      style={{ 
-                        padding: '4px 12px', 
-                        fontSize: 12, 
-                        minHeight: 30,
-                        background: layoutMode === 'side-by-side' ? 'rgba(106, 17, 203, 0.5)' : undefined 
-                      }}
-                    >
-                      <i className="fas fa-columns"></i> Side by Side
-                    </button>
-                    <button
-                      className="stream-together-button"
-                      onClick={() => {
-                        setLayoutMode("pip");
-                        compositorRef.current?.setLayout("pip");
-                      }}
-                      style={{ 
-                        padding: '4px 12px', 
-                        fontSize: 12, 
-                        minHeight: 30,
-                        background: layoutMode === 'pip' ? 'rgba(106, 17, 203, 0.5)' : undefined
-                      }}
-                    >
-                      <i className="fas fa-window-restore"></i> PIP
-                    </button>
-                  </div>
-                </div>
-                <div className="stream-together-video" style={{ maxHeight: 360, border: '2px solid rgba(106, 17, 203, 0.3)' }}>
-                  <canvas 
-                    ref={previewCanvasRef}
-                    width="1280"
-                    height="720"
-                    style={{ 
-                      width: '100%', 
-                      height: '100%', 
-                      objectFit: 'contain',
-                      display: 'block'
+            {/* Preview of composited stream - always rendered but hidden when not live */}
+            <div style={{ marginTop: 16, display: isLive ? 'block' : 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <h3 style={{ margin: 0 }}>Combined Stream (sent to platforms)</h3>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="stream-together-button"
+                    onClick={() => {
+                      setLayoutMode("side-by-side");
+                      compositorRef.current?.setLayout("side-by-side");
                     }}
-                  />
-                  {(!compositorRef.current || compositorRef.current.videos.length === 0) && (
-                    <div className="stream-together-placeholder">
-                      <div>
-                        <i className="fas fa-spinner fa-spin"></i>
-                        <strong>Preparing combined stream...</strong>
-                      </div>
-                    </div>
-                  )}
+                    style={{ 
+                      padding: '4px 12px', 
+                      fontSize: 12, 
+                      minHeight: 30,
+                      background: layoutMode === 'side-by-side' ? 'rgba(106, 17, 203, 0.5)' : undefined 
+                    }}
+                  >
+                    <i className="fas fa-columns"></i> Side by Side
+                  </button>
+                  <button
+                    className="stream-together-button"
+                    onClick={() => {
+                      setLayoutMode("pip");
+                      compositorRef.current?.setLayout("pip");
+                    }}
+                    style={{ 
+                      padding: '4px 12px', 
+                      fontSize: 12, 
+                      minHeight: 30,
+                      background: layoutMode === 'pip' ? 'rgba(106, 17, 203, 0.5)' : undefined
+                    }}
+                  >
+                    <i className="fas fa-window-restore"></i> PIP
+                  </button>
                 </div>
               </div>
-            )}
+              <div className="stream-together-video" style={{ maxHeight: 360, border: '2px solid rgba(106, 17, 203, 0.3)', position: 'relative' }}>
+                <canvas 
+                  ref={previewCanvasRef}
+                  width="1280"
+                  height="720"
+                  style={{ 
+                    width: '100%', 
+                    height: '100%', 
+                    objectFit: 'contain',
+                    display: 'block',
+                    backgroundColor: '#05060a'
+                  }}
+                />
+              </div>
+            </div>
 
             <div className="stream-together-controls">
               <div className="stream-together-field">
