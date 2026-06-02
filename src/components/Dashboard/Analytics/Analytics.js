@@ -1,35 +1,73 @@
 import React from "react";
 import "./Analytics.css";
 
-function Analytics({ connectedChannels }) {
+function Analytics({
+  connectedChannels,
+  isStreaming,
+  isCameraOn,
+  isRecording,
+  uploadedVideo,
+  recordedVideo,
+  scheduleStatus,
+}) {
+  const liveChannels = connectedChannels.filter(
+    (channel) => channel.status === "live"
+  );
+  const nextScheduledStream =
+    scheduleStatus?.active && scheduleStatus.startAtMs
+      ? new Date(scheduleStatus.startAtMs).toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "None";
+
   const analytics = [
     {
       id: 1,
-      title: "Total Viewers",
-      value: "5,470",
-      icon: "fas fa-users",
+      title: "Connected Destinations",
+      value: connectedChannels.length,
+      icon: "fas fa-satellite-dish",
       color: "linear-gradient(135deg, #6a11cb, #2575fc)",
     },
     {
       id: 2,
-      title: "Stream Uptime",
-      value: "3h 42m",
-      icon: "fas fa-clock",
+      title: "Live Destinations",
+      value: liveChannels.length,
+      icon: "fas fa-broadcast-tower",
       color: "linear-gradient(135deg, #FF416C, #FF4B2B)",
     },
     {
       id: 3,
-      title: "Avg. Bitrate",
-      value: "6,500 kbps",
-      icon: "fas fa-tachometer-alt",
+      title: "Studio Status",
+      value: isStreaming
+        ? "Live"
+        : isRecording
+        ? "Recording"
+        : isCameraOn
+        ? "Camera Ready"
+        : "Offline",
+      icon: "fas fa-video",
       color: "linear-gradient(135deg, #11998e, #38ef7d)",
     },
     {
       id: 4,
-      title: "Platforms",
-      value: `${connectedChannels.length} Connected`,
-      icon: "fas fa-satellite-dish",
+      title: "Next Scheduled Stream",
+      value: nextScheduledStream,
+      icon: "fas fa-calendar-check",
       color: "linear-gradient(135deg, #f46b45, #eea849)",
+    },
+    {
+      id: 5,
+      title: "Prepared Media",
+      value: uploadedVideo
+        ? "Uploaded"
+        : recordedVideo
+        ? "Recorded"
+        : "None",
+      icon: "fas fa-photo-video",
+      color: "linear-gradient(135deg, #00c6ff, #0072ff)",
     },
   ];
 
@@ -37,7 +75,7 @@ function Analytics({ connectedChannels }) {
     <div className="analytics-section">
       <div className="section-header">
         <h2>Stream Analytics</h2>
-        <div className="update-text">Updated in real-time</div>
+        <div className="update-text">Updated from your workspace</div>
       </div>
 
       <div className="analytics-cards">

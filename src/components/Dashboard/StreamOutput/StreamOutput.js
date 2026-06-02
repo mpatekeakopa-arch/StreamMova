@@ -371,8 +371,8 @@ function StreamOutput({
             {isBusy
               ? "Connecting…"
               : isPublishing
-              ? "Stop Live (SRS)"
-              : "Go Live (SRS)"}
+              ? "Stop Live "
+              : "Go Live "}
           </button>
 
           <button className="btn btn-secondary" onClick={handleOpenChannelModal}>
@@ -390,7 +390,7 @@ function StreamOutput({
         <div style={{ opacity: 0.9 }}>
           {isPublishing
             ? `Publishing to SRS. Verify on VM: curl -s "http://127.0.0.1:1985/api/v1/streams/"`
-            : `Turn on camera, then click "Go Live (SRS)" to publish.`}
+            : `Turn on camera, then click "Go Live " to publish.`}
         </div>
       </div>
 

@@ -1,7 +1,10 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import "./Sidebar.css";
 
 function Sidebar({ isSidebarOpen, activeNav, toggleSidebar, handleNavClick }) {
+  const navigate = useNavigate();
+
   return (
     <>
       <button
@@ -45,6 +48,17 @@ function Sidebar({ isSidebarOpen, activeNav, toggleSidebar, handleNavClick }) {
           >
             <i className="nav-icon fas fa-broadcast-tower"></i>
             <span>Multistream</span>
+          </button>
+
+          <button
+            className={`nav-item ${activeNav === "streamtogether" ? "active" : ""}`}
+            onClick={() => {
+              handleNavClick("streamtogether");
+              navigate("/stream-together");
+            }}
+          >
+            <i className="nav-icon fas fa-users"></i>
+            <span>Stream Together</span>
           </button>
 
           <button
