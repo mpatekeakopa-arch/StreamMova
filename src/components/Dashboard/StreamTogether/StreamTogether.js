@@ -457,7 +457,7 @@ function StreamTogetherHost({ onBack }) {
   const cohostVideoRefs = useRef({});
   const cohostPlayersRef = useRef({});
   const modalRef = useRef(null);
-  const previewAnimRef = useRef(null);
+  
 
   const cohostLink = session
     ? `${window.location.origin}/cohost-join/${session.sessionId}`
@@ -1845,7 +1845,7 @@ function StreamViewer({ sessionId, onBack }) {
               <div className="stream-together-meta-item">
                 <span>Status</span>
                 <strong>{session?.status || "loading"}</strong>
-                
+
               </div>
             </div>
           </div>
