@@ -540,17 +540,20 @@ function StreamTogetherHost({ onBack }) {
     });
   };
 
-  // Preview canvas renderer
+  // Preview canvas renderer - FIXED: removed compositorRef.current from deps
   useEffect(() => {
-    if (!compositorRef.current || !previewCanvasRef.current) return;
+    const compositor = compositorRef.current;
+    const previewCanvas = previewCanvasRef.current;
+    
+    if (!compositor || !previewCanvas) return;
     
     let animId;
     const renderPreview = () => {
-      if (compositorRef.current && previewCanvasRef.current) {
-        const ctx = previewCanvasRef.current.getContext('2d');
-        previewCanvasRef.current.width = compositorRef.current.canvas.width;
-        previewCanvasRef.current.height = compositorRef.current.canvas.height;
-        ctx.drawImage(compositorRef.current.canvas, 0, 0);
+      if (compositor && previewCanvas) {
+        const ctx = previewCanvas.getContext('2d');
+        previewCanvas.width = compositor.canvas.width;
+        previewCanvas.height = compositor.canvas.height;
+        ctx.drawImage(compositor.canvas, 0, 0);
       }
       animId = requestAnimationFrame(renderPreview);
     };
@@ -559,7 +562,7 @@ function StreamTogetherHost({ onBack }) {
     return () => {
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [isLive, compositorRef.current]);
+  }, [isLive]);
 
   useEffect(() => {
     const stored = (() => {
