@@ -91,10 +91,14 @@ function Dashboard() {
     dashboardRuntime.recordedVideo
   );
 
+  // Enhanced Schedule/Reminder State
+  const [showSchedulePicker, setShowSchedulePicker] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({
     title: "",
-    startAtLocal: "",
+    date: "",
+    time: "",
   });
+  const [nextStreamDate, setNextStreamDate] = useState(null);
 
   const scheduleTimeoutRef = useRef(null);
   const [scheduleStatus, setScheduleStatus] = useState({
@@ -150,7 +154,7 @@ function Dashboard() {
     (page) => page.id === selectedFacebookPageId
   );
 
-  // Load saved channels from localStorage on mount
+  // Load saved channels and schedule from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("streammova_connected_channels");
 
@@ -176,8 +180,28 @@ function Dashboard() {
         setFacebookPages(data.facebookPages || []);
         setSelectedFacebookPageId(data.selectedFacebookPageId || "");
         setFacebookConnectStatus(data.facebookConnectStatus || "");
+        
+        // Load schedule if exists
+        if (data.nextStreamDate) {
+          setNextStreamDate(new Date(data.nextStreamDate));
+        }
       } catch (err) {
         console.error("Failed to load saved channels:", err);
+      }
+    }
+    
+    // Load schedule separately
+    const savedSchedule = localStorage.getItem("streammova_schedule");
+    if (savedSchedule) {
+      try {
+        const scheduleData = JSON.parse(savedSchedule);
+        setScheduleForm(scheduleData.scheduleForm || { title: "", date: "", time: "" });
+        if (scheduleData.nextStreamDate) {
+          setNextStreamDate(new Date(scheduleData.nextStreamDate));
+          checkAndSetReminder(new Date(scheduleData.nextStreamDate));
+        }
+      } catch (err) {
+        console.error("Failed to load schedule:", err);
       }
     }
   }, []);
@@ -202,6 +226,7 @@ function Dashboard() {
         facebookPages,
         selectedFacebookPageId,
         facebookConnectStatus,
+        nextStreamDate: nextStreamDate?.toISOString() || null,
       })
     );
   }, [
@@ -220,7 +245,19 @@ function Dashboard() {
     facebookPages,
     selectedFacebookPageId,
     facebookConnectStatus,
+    nextStreamDate,
   ]);
+
+  // Save schedule to localStorage
+  useEffect(() => {
+    localStorage.setItem(
+      "streammova_schedule",
+      JSON.stringify({
+        scheduleForm,
+        nextStreamDate: nextStreamDate?.toISOString() || null,
+      })
+    );
+  }, [scheduleForm, nextStreamDate]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -255,6 +292,14 @@ function Dashboard() {
       [name]: value,
       testStatus: name === "streamKey" ? "idle" : prev.testStatus,
       testMessage: name === "streamKey" ? "" : prev.testMessage,
+    }));
+  };
+
+  const handleScheduleInputChange = (e) => {
+    const { name, value } = e.target;
+    setScheduleForm((prev) => ({
+      ...prev,
+      [name]: value,
     }));
   };
 
@@ -472,11 +517,11 @@ function Dashboard() {
       },
       body: JSON.stringify({
         channelId,
-        title: "StreamMova Live",
+        title: scheduleForm.title || "StreamMova Live",
         description: "Live from StreamMova",
         pageId: selectedFacebookPage.id,
         pageAccessToken: selectedFacebookPage.access_token,
-        compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
+        compositedStreamKey: compositedKey
       }),
     });
 
@@ -530,7 +575,7 @@ function Dashboard() {
       body: JSON.stringify({
         channelId,
         streamKey: twitchStreamKey,
-        compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
+        compositedStreamKey: compositedKey
       }),
     });
 
@@ -586,9 +631,9 @@ function Dashboard() {
           channelId,
           accessToken: youtubeAccessToken,
           refreshToken: youtubeRefreshToken,
-          title: "StreamMova Live",
+          title: scheduleForm.title || "StreamMova Live",
           description: "Live from StreamMova",
-          compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
+          compositedStreamKey: compositedKey
         }),
       });
 
@@ -607,7 +652,7 @@ function Dashboard() {
             channelId,
             accessToken: data.newAccessToken,
             refreshToken: youtubeRefreshToken,
-            title: "StreamMova Live",
+            title: scheduleForm.title || "StreamMova Live",
             description: "Live from StreamMova",
             compositedStreamKey: compositedKey
           }),
@@ -709,7 +754,6 @@ function Dashboard() {
 
         const startTasks = [];
 
-        // Pass the explicit composited key argument down to each platform endpoint
         if (hasFacebook) startTasks.push(startFacebookLive(explicitCompositedKey));
         if (hasTwitch) startTasks.push(startTwitchLive(explicitCompositedKey));
         if (hasYouTube) startTasks.push(startYouTubeLive(explicitCompositedKey));
@@ -729,6 +773,17 @@ function Dashboard() {
         if (hasYouTube) livePlatforms.push("YouTube");
 
         setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
+        
+        // Clear schedule after going live
+        if (nextStreamDate) {
+          setNextStreamDate(null);
+          setScheduleForm({ title: "", date: "", time: "" });
+          setScheduleStatus({
+            active: false,
+            message: "Stream started!",
+            startAtMs: null,
+          });
+        }
       } else {
         await closeCamera();
       }
@@ -906,62 +961,93 @@ function Dashboard() {
     const allowed = await requestNotificationPermission();
 
     if (allowed) {
-      new Notification("StreamMova Scheduled Stream", {
+      new Notification("StreamMova - Stream Reminder", {
         body: title
-          ? `It's time to start: ${title}`
-          : "It's time to start streaming!",
+          ? `Time to start streaming: ${title}`
+          : "It's time to start your scheduled stream!",
+        icon: "/favicon.ico",
+        tag: "stream-reminder",
       });
     } else {
-      alert(title ? `It's time to start: ${title}` : "It's time to start streaming!");
+      alert(title ? `Time to start: ${title}` : "It's time to start streaming!");
     }
+  };
+
+  const checkAndSetReminder = (targetDate) => {
+    const now = Date.now();
+    const targetMs = targetDate.getTime();
+
+    if (targetMs <= now) {
+      setScheduleStatus({
+        active: false,
+        message: "Selected time has already passed.",
+        startAtMs: null,
+      });
+      return;
+    }
+
+    // Clear existing timeout
+    if (scheduleTimeoutRef.current) {
+      clearTimeout(scheduleTimeoutRef.current);
+    }
+
+    const timeUntilStream = targetMs - now;
+    
+    scheduleTimeoutRef.current = setTimeout(async () => {
+      await showScheduleNotification(scheduleForm.title);
+      setScheduleStatus({
+        active: false,
+        message: "Time to stream! Click Start Multistream to go live.",
+        startAtMs: null,
+      });
+      setNextStreamDate(null);
+      scheduleTimeoutRef.current = null;
+    }, timeUntilStream);
+
+    setScheduleStatus({
+      active: true,
+      message: `Reminder set for ${targetDate.toLocaleString()}`,
+      startAtMs: targetMs,
+    });
   };
 
   const scheduleSession = async () => {
     setError("");
 
-    const { title, startAtLocal } = scheduleForm;
+    const { title, date, time } = scheduleForm;
 
-    if (!startAtLocal) {
-      setError("Pick a date/time to schedule.");
+    if (!date || !time) {
+      setError("Please select both a date and time for the reminder.");
       return;
     }
 
-    const startMs = new Date(startAtLocal).getTime();
+    const dateTimeString = `${date}T${time}:00`;
+    const startMs = new Date(dateTimeString).getTime();
 
     if (!Number.isFinite(startMs)) {
-      setError("Invalid schedule date/time.");
+      setError("Invalid date/time. Please select a valid date and time.");
       return;
     }
 
     const now = Date.now();
 
     if (startMs <= now + 2000) {
-      setError("Choose a time at least a few seconds in the future.");
+      setError("Please select a time at least a few seconds in the future.");
       return;
     }
 
-    if (scheduleTimeoutRef.current) {
-      clearTimeout(scheduleTimeoutRef.current);
-      scheduleTimeoutRef.current = null;
-    }
-
-    setScheduleStatus({
-      active: true,
-      message: `Scheduled for ${new Date(startMs).toLocaleString()}`,
-      startAtMs: startMs,
-    });
-
-    scheduleTimeoutRef.current = setTimeout(async () => {
-      await showScheduleNotification(title);
-      setScheduleStatus({
-        active: false,
-        message: "Schedule triggered.",
-        startAtMs: null,
-      });
-      scheduleTimeoutRef.current = null;
-    }, startMs - now);
-
+    // Request notification permission
     await requestNotificationPermission();
+
+    // Set the next stream date
+    const streamDate = new Date(startMs);
+    setNextStreamDate(streamDate);
+    
+    // Set up the reminder
+    checkAndSetReminder(streamDate);
+    
+    // Close the schedule picker
+    setShowSchedulePicker(false);
   };
 
   const cancelSchedule = () => {
@@ -970,11 +1056,54 @@ function Dashboard() {
       scheduleTimeoutRef.current = null;
     }
 
+    setNextStreamDate(null);
+    setScheduleForm({ title: "", date: "", time: "" });
     setScheduleStatus({
       active: false,
-      message: "Schedule cancelled.",
+      message: "Reminder cancelled.",
       startAtMs: null,
     });
+  };
+
+  const toggleSchedulePicker = () => {
+    setShowSchedulePicker(!showSchedulePicker);
+    if (!showSchedulePicker) {
+      setError("");
+    }
+  };
+
+  // Format next stream date for display
+  const formatNextStream = () => {
+    if (!nextStreamDate) return null;
+    
+    const now = new Date();
+    const diff = nextStreamDate - now;
+    
+    if (diff < 0) return null;
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const dateStr = nextStreamDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    const timeStr = nextStreamDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    if (days > 0) {
+      return `${dateStr} at ${timeStr} (in ${days}d ${hours}h ${minutes}m)`;
+    } else if (hours > 0) {
+      return `${dateStr} at ${timeStr} (in ${hours}h ${minutes}m)`;
+    } else {
+      return `${dateStr} at ${timeStr} (in ${minutes}m)`;
+    }
   };
 
   // Handle OAuth callbacks
@@ -1155,6 +1284,15 @@ function Dashboard() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showChannelModal]);
 
+  // Get minimum date for the calendar (today)
+  const getTodayString = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   return (
     <div className={`streammova-app ${isSidebarOpen ? "" : "sidebar-collapsed"}`}>
       <ChannelModal
@@ -1215,6 +1353,16 @@ function Dashboard() {
             twitchUsername={twitchUsername}
             youtubeConnected={youtubeConnected}
             youtubeChannelName={youtubeChannelName}
+            nextStreamDate={nextStreamDate}
+            formatNextStream={formatNextStream}
+            toggleSchedulePicker={toggleSchedulePicker}
+            showSchedulePicker={showSchedulePicker}
+            scheduleForm={scheduleForm}
+            handleScheduleInputChange={handleScheduleInputChange}
+            scheduleSession={scheduleSession}
+            cancelSchedule={cancelSchedule}
+            scheduleStatus={scheduleStatus}
+            getTodayString={getTodayString}
           />
 
           <QuickActions
@@ -1240,6 +1388,12 @@ function Dashboard() {
             downloadRecording={downloadRecording}
             scheduleSession={scheduleSession}
             cancelSchedule={cancelSchedule}
+            showSchedulePicker={showSchedulePicker}
+            toggleSchedulePicker={toggleSchedulePicker}
+            handleScheduleInputChange={handleScheduleInputChange}
+            getTodayString={getTodayString}
+            nextStreamDate={nextStreamDate}
+            formatNextStream={formatNextStream}
           />
 
           <Analytics
@@ -1250,6 +1404,7 @@ function Dashboard() {
             uploadedVideo={uploadedVideo}
             recordedVideo={recordedVideo}
             scheduleStatus={scheduleStatus}
+            nextStreamDate={nextStreamDate}
           />
         </div>
       </div>
