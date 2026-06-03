@@ -3,38 +3,50 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 const SRS_RTC_BASE = "webrtc://srs.streammova.xyz/live";
 
 export default function StreamTogether() {
-  const path = window.location.pathname;
-  const inviteId = path.split("/invite/")[1];
-
-  if (inviteId) {
-    return <GuestView inviteId={inviteId} />;
-  }
-  return <HostView />;
-}
-
-// =========================
-// HOST VIEW
-// =========================
-function HostView() {
+  const [mode, setMode] = useState(null); // null, 'host', 'guest'
   const [guestJoined, setGuestJoined] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
+  const [roomId, setRoomId] = useState("");
 
   const videoHostRef = useRef(null);
+  const videoGuestRef = useRef(null);
   const canvasRef = useRef(null);
   const hostStreamRef = useRef(null);
-  const compositedPublisherRef = useRef(null);
-  const guestPlayerRef = useRef(null);
-  const guestVideoRef = useRef(null);
-  const sessionRef = useRef(`room-${Date.now()}`);
+  const guestStreamRef = useRef(null);
+  const publisherRef = useRef(null);
+  const playerRef = useRef(null);
   const pollRef = useRef(null);
   const animRef = useRef(null);
 
-  // Draw host + guest side by side on canvas
-  const draw = useCallback(() => {
+  // Check URL for guest invite on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const room = params.get("room");
+    if (room) {
+      setMode("guest");
+      setRoomId(room);
+    }
+  }, []);
+
+  // Load SRS SDK
+  const loadSdk = useCallback(() => {
+    return new Promise((resolve) => {
+      if (window.SrsRtcPublisherAsync && window.SrsRtcPlayerAsync) return resolve();
+      const s = document.createElement("script");
+      s.src = "/vendor/srs/srs.sdk.js";
+      s.onload = resolve;
+      s.onerror = resolve;
+      document.head.appendChild(s);
+    });
+  }, []);
+
+  // Canvas drawing
+  const startDrawing = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
     const ctx = canvas.getContext("2d");
     canvas.width = 1280;
     canvas.height = 720;
@@ -43,24 +55,23 @@ function HostView() {
       ctx.fillStyle = "#111";
       ctx.fillRect(0, 0, 1280, 720);
 
-      // Host (left)
+      // Host left half
       if (videoHostRef.current?.readyState >= 2) {
         ctx.drawImage(videoHostRef.current, 0, 0, 640, 720);
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.font = "18px Arial";
+        ctx.fillText("HOST", 20, 30);
       }
 
-      // Guest (right)
-      if (guestVideoRef.current?.readyState >= 2) {
-        ctx.drawImage(guestVideoRef.current, 640, 0, 640, 720);
-      }
-
-      // Labels
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.font = "18px Arial";
-      ctx.fillText("HOST", 20, 30);
-      
-      if (guestVideoRef.current?.readyState >= 2) {
+      // Guest right half
+      if (videoGuestRef.current?.readyState >= 2) {
+        ctx.drawImage(videoGuestRef.current, 640, 0, 640, 720);
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.font = "18px Arial";
         ctx.fillText("GUEST", 660, 30);
-      } else {
+      }
+
+      if (!videoGuestRef.current || videoGuestRef.current.readyState < 2) {
         ctx.fillStyle = "rgba(255,255,255,0.3)";
         ctx.font = "20px Arial";
         ctx.textAlign = "center";
@@ -72,404 +83,382 @@ function HostView() {
     frame();
   }, []);
 
-  // Start camera and drawing
-  const startCamera = useCallback(async () => {
+  // ============ HOST FUNCTIONS ============
+  const startAsHost = async () => {
+    setMode("host");
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 1280, height: 720 },
         audio: true,
       });
       hostStreamRef.current = stream;
-      if (videoHostRef.current) {
-        videoHostRef.current.srcObject = stream;
-        videoHostRef.current.play().catch(() => {});
-      }
-      draw();
+      videoHostRef.current.srcObject = stream;
+      videoHostRef.current.play();
+      startDrawing();
+
+      const id = `room-${Date.now()}`;
+      setRoomId(id);
+      setInviteLink(`${window.location.origin}/stream-together?room=${id}`);
     } catch (err) {
-      console.error("Camera error:", err);
+      alert("Camera access denied. Please allow camera permissions.");
+      setMode(null);
     }
-  }, [draw]);
+  };
 
-  // Load SRS SDK
-  const loadSdk = useCallback(() => {
-    return new Promise((resolve) => {
-      if (window.SrsRtcPublisherAsync && window.SrsRtcPlayerAsync) {
-        return resolve();
-      }
-      if (document.querySelector("[data-srs]")) {
-        return resolve();
-      }
-      const s = document.createElement("script");
-      s.src = "/vendor/srs/srs.sdk.js";
-      s.dataset.srs = "1";
-      s.onload = resolve;
-      s.onerror = resolve;
-      document.head.appendChild(s);
-    });
-  }, []);
-
-  // Wait for guest to publish their stream
-  const waitForGuest = useCallback((sid) => {
-    if (pollRef.current) clearInterval(pollRef.current);
+  const goLive = async () => {
+    await loadSdk();
     
+    const mixed = canvasRef.current.captureStream(30);
+    const audioTrack = hostStreamRef.current?.getAudioTracks()[0];
+    if (audioTrack) mixed.addTrack(audioTrack);
+
+    const pub = new window.SrsRtcPublisherAsync();
+    await pub.publish(`${SRS_RTC_BASE}/${roomId}`, mixed);
+    publisherRef.current = pub;
+    setIsLive(true);
+
+    // Poll for guest
     pollRef.current = setInterval(async () => {
       if (!window.SrsRtcPlayerAsync) return;
-      
       try {
         const player = new window.SrsRtcPlayerAsync();
-        await player.play(`${SRS_RTC_BASE}/${sid}-guest`);
-
+        await player.play(`${SRS_RTC_BASE}/${roomId}-guest`);
+        
         const vid = document.createElement("video");
         vid.autoplay = true;
         vid.muted = true;
         vid.playsInline = true;
         vid.srcObject = player.stream;
-        vid.play().catch(() => {});
-
-        guestVideoRef.current = vid;
-        guestPlayerRef.current = player;
+        vid.play();
+        
+        videoGuestRef.current = vid;
+        playerRef.current = player;
         setGuestJoined(true);
         clearInterval(pollRef.current);
-      } catch (e) {
-        // Guest not yet connected, keep polling
-      }
+      } catch (e) {}
     }, 3000);
-  }, []);
-
-  // Generate invite link and go live
-  const goLive = async () => {
-    await loadSdk();
-    const sid = sessionRef.current;
-    setInviteLink(`${window.location.origin}/invite/${sid}`);
-
-    // Publish composited canvas to SRS
-    const mixed = canvasRef.current.captureStream(30);
-    if (hostStreamRef.current) {
-      const audioTrack = hostStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) mixed.addTrack(audioTrack);
-    }
-
-    try {
-      const pub = new window.SrsRtcPublisherAsync();
-      await pub.publish(`${SRS_RTC_BASE}/${sid}`, mixed);
-      compositedPublisherRef.current = pub;
-      setIsLive(true);
-      waitForGuest(sid);
-    } catch (err) {
-      console.error("SRS publish error:", err);
-      alert("Failed to publish stream. Is SRS running?");
-    }
   };
 
-  // Copy invite link
   const copyLink = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(inviteLink).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    }
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   };
 
-  // Stop everything
-  const stop = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (animRef.current) cancelAnimationFrame(animRef.current);
-    compositedPublisherRef.current?.close();
-    guestPlayerRef.current?.close();
-    guestVideoRef.current?.remove();
-    guestVideoRef.current = null;
-    hostStreamRef.current?.getTracks().forEach((t) => t.stop());
+  const stopHost = () => {
+    clearInterval(pollRef.current);
+    cancelAnimationFrame(animRef.current);
+    publisherRef.current?.close();
+    playerRef.current?.close();
+    hostStreamRef.current?.getTracks().forEach(t => t.stop());
     setIsLive(false);
     setGuestJoined(false);
+    setMode(null);
     setInviteLink("");
+    setRoomId("");
   };
 
-  // Start camera on mount
+  // ============ GUEST FUNCTIONS ============
+  const joinAsGuest = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 1280, height: 720 },
+        audio: true,
+      });
+      guestStreamRef.current = stream;
+      videoGuestRef.current.srcObject = stream;
+      videoGuestRef.current.play();
+
+      await loadSdk();
+      const pub = new window.SrsRtcPublisherAsync();
+      await pub.publish(`${SRS_RTC_BASE}/${roomId}-guest`, stream);
+      publisherRef.current = pub;
+      setGuestJoined(true);
+    } catch (err) {
+      alert("Failed to join. Check camera permissions.");
+    }
+  };
+
+  const stopGuest = () => {
+    publisherRef.current?.close();
+    guestStreamRef.current?.getTracks().forEach(t => t.stop());
+    setGuestJoined(false);
+    setMode(null);
+    setRoomId("");
+  };
+
+  // Cleanup
   useEffect(() => {
-    startCamera();
     return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      if (pollRef.current) clearInterval(pollRef.current);
-      hostStreamRef.current?.getTracks().forEach((t) => t.stop());
-      compositedPublisherRef.current?.close();
-      guestPlayerRef.current?.close();
-      guestVideoRef.current?.remove();
+      clearInterval(pollRef.current);
+      cancelAnimationFrame(animRef.current);
+      publisherRef.current?.close();
+      playerRef.current?.close();
+      hostStreamRef.current?.getTracks().forEach(t => t.stop());
+      guestStreamRef.current?.getTracks().forEach(t => t.stop());
     };
-  }, [startCamera]);
+  }, []);
 
+  // ============ CHOOSE MODE SCREEN ============
+  if (mode === null) {
+    return (
+      <div style={styles.container}>
+        <h2 style={styles.heading}>Stream Together</h2>
+        <p style={styles.subtext}>Host a room or join as a guest</p>
+        
+        <div style={styles.buttonGroup}>
+          <button onClick={startAsHost} style={styles.primaryBtn}>
+            🎥 Start as Host
+          </button>
+          <div style={styles.divider}>
+            <span style={styles.dividerText}>OR</span>
+          </div>
+          <div style={styles.joinBox}>
+            <input
+              placeholder="Paste room link or ID"
+              onChange={(e) => {
+                const val = e.target.value;
+                const match = val.match(/room=([^&]+)/);
+                if (match) setRoomId(match[1]);
+                else setRoomId(val);
+              }}
+              style={styles.input}
+            />
+            <button
+              onClick={() => roomId && setMode("guest")}
+              disabled={!roomId}
+              style={{ ...styles.secondaryBtn, opacity: roomId ? 1 : 0.5 }}
+            >
+              Join as Guest
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ GUEST VIEW ============
+  if (mode === "guest" && !guestJoined) {
+    return (
+      <div style={styles.container}>
+        <h2 style={styles.heading}>Join Stream</h2>
+        <video ref={videoGuestRef} autoPlay muted playsInline style={styles.video} />
+        <button onClick={joinAsGuest} style={styles.primaryBtn}>
+          Join & Share Camera
+        </button>
+        <button onClick={() => setMode(null)} style={styles.backBtn}>
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === "guest" && guestJoined) {
+    return (
+      <div style={styles.container}>
+        <h2 style={styles.heading}>✅ You're Live!</h2>
+        <p style={{ color: "#0f0" }}>The host can see you now.</p>
+        <video ref={videoGuestRef} autoPlay muted playsInline style={styles.video} />
+        <button onClick={stopGuest} style={styles.dangerBtn}>
+          Leave Stream
+        </button>
+      </div>
+    );
+  }
+
+  // ============ HOST VIEW ============
   return (
-    <div style={{ maxWidth: 700, margin: "0 auto", padding: 20, fontFamily: "sans-serif" }}>
-      <h2>Stream Together</h2>
+    <div style={styles.container}>
+      <h2 style={styles.heading}>Host Stream</h2>
 
-      {/* Preview */}
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: "100%",
-          borderRadius: 10,
-          background: "#111",
-          border: isLive ? "2px solid #0f0" : "2px solid #333",
-        }}
-      />
-      {isLive && <p style={{ color: "#0f0", textAlign: "center", fontWeight: "bold" }}>● LIVE</p>}
+      {/* Preview Canvas */}
+      <canvas ref={canvasRef} style={styles.canvas} />
+      {isLive && <p style={styles.liveBadge}>● LIVE</p>}
 
-      {/* Buttons */}
-      <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+      {/* Controls */}
+      <div style={styles.controls}>
         {!isLive ? (
-          <button
-            onClick={goLive}
-            style={{
-              padding: "10px 30px",
-              fontSize: 16,
-              cursor: "pointer",
-              backgroundColor: "#9146FF",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-            }}
-          >
-            Go Live & Get Invite Link
+          <button onClick={goLive} style={styles.primaryBtn}>
+            Go Live
           </button>
         ) : (
-          <button
-            onClick={stop}
-            style={{
-              padding: "10px 30px",
-              fontSize: 16,
-              cursor: "pointer",
-              backgroundColor: "#e74c3c",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-            }}
-          >
+          <button onClick={stopHost} style={styles.dangerBtn}>
             Stop Stream
           </button>
         )}
       </div>
 
-      {/* Invite Link Section */}
+      {/* Invite Link */}
       {inviteLink && (
-        <div
-          style={{
-            marginTop: 24,
-            padding: 20,
-            background: "#1a1a1a",
-            borderRadius: 10,
-            border: "1px solid #333",
-          }}
-        >
-          <h3 style={{ marginTop: 0 }}>📋 Invite Guest Link</h3>
-          <p style={{ color: "#888", fontSize: 14 }}>
-            Share this link with your guest. They will appear on the right side of your stream.
-          </p>
-          
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <input
-              value={inviteLink}
-              readOnly
-              onClick={(e) => e.target.select()}
-              style={{
-                flex: 1,
-                padding: "10px 14px",
-                background: "#2a2a2a",
-                color: "#fff",
-                border: "1px solid #555",
-                borderRadius: 6,
-                fontSize: 14,
-              }}
-            />
-            <button
-              onClick={copyLink}
-              style={{
-                padding: "10px 20px",
-                cursor: "pointer",
-                backgroundColor: copied ? "#27ae60" : "#444",
-                color: "#fff",
-                border: "none",
-                borderRadius: 6,
-                minWidth: 80,
-                fontWeight: "bold",
-              }}
-            >
-              {copied ? "✓ Copied!" : "Copy"}
+        <div style={styles.inviteBox}>
+          <h3>📋 Invite Guest</h3>
+          <div style={styles.copyRow}>
+            <input value={inviteLink} readOnly onClick={e => e.target.select()} style={styles.input} />
+            <button onClick={copyLink} style={styles.copyBtn}>
+              {copied ? "✓" : "Copy"}
             </button>
           </div>
-
-          {/* Guest Status */}
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              background: guestJoined ? "#0a2a0a" : "#2a2a0a",
-              borderRadius: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 20 }}>{guestJoined ? "✅" : "⏳"}</span>
-            <span style={{ color: guestJoined ? "#0f0" : "#ff0", fontWeight: "bold" }}>
-              {guestJoined ? "Guest connected! Side-by-side active." : "Waiting for guest to join..."}
-            </span>
-          </div>
-
-          {/* SRS Output Info */}
+          <p style={{ color: guestJoined ? "#0f0" : "#888", marginTop: 12 }}>
+            {guestJoined ? "✅ Guest connected" : "⏳ Waiting for guest..."}
+          </p>
           {isLive && (
-            <div style={{ marginTop: 12, padding: 10, background: "#111", borderRadius: 6 }}>
-              <p style={{ color: "#888", fontSize: 12, margin: 0 }}>
-                FFmpeg can pull from:{" "}
-                <code style={{ background: "#333", padding: "2px 6px", borderRadius: 3, color: "#0ff" }}>
-                  {SRS_RTC_BASE}/{sessionRef.current}
-                </code>
-              </p>
-            </div>
+            <p style={styles.srsInfo}>
+              SRS Output: <code>{SRS_RTC_BASE}/{roomId}</code>
+            </p>
           )}
         </div>
       )}
 
-      {/* Hidden host video for compositor */}
+      {/* Hidden videos for compositor */}
       <video ref={videoHostRef} muted playsInline style={{ display: "none" }} />
     </div>
   );
 }
 
-// =========================
-// GUEST VIEW
-// =========================
-function GuestView({ inviteId }) {
-  const [joined, setJoined] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const pubRef = useRef(null);
-
-  const loadSdk = useCallback(() => {
-    return new Promise((resolve) => {
-      if (window.SrsRtcPublisherAsync) return resolve();
-      if (document.querySelector("[data-srs]")) return resolve();
-      const s = document.createElement("script");
-      s.src = "/vendor/srs/srs.sdk.js";
-      s.dataset.srs = "1";
-      s.onload = resolve;
-      s.onerror = resolve;
-      document.head.appendChild(s);
-    });
-  }, []);
-
-  const join = async () => {
-    setLoading(true);
-    try {
-      // Get camera
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
-        audio: true,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
-      }
-
-      // Load SDK and publish
-      await loadSdk();
-      const pub = new window.SrsRtcPublisherAsync();
-      await pub.publish(`${SRS_RTC_BASE}/${inviteId}-guest`, stream);
-      pubRef.current = pub;
-      setJoined(true);
-    } catch (err) {
-      console.error("Join error:", err);
-      alert("Failed to join. Check camera permissions and try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const leave = () => {
-    pubRef.current?.close();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setJoined(false);
-  };
-
-  useEffect(() => {
-    return () => {
-      pubRef.current?.close();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  return (
-    <div style={{ maxWidth: 500, margin: "0 auto", padding: 20, fontFamily: "sans-serif", textAlign: "center" }}>
-      <h2>🎥 Join as Guest</h2>
-      <p style={{ color: "#888" }}>
-        You've been invited to join a stream. Your video will appear alongside the host.
-      </p>
-
-      {/* Guest preview */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        style={{
-          width: "100%",
-          maxWidth: 400,
-          borderRadius: 10,
-          background: "#111",
-          margin: "20px auto",
-          display: "block",
-        }}
-      />
-
-      {!joined ? (
-        <button
-          onClick={join}
-          disabled={loading}
-          style={{
-            padding: "12px 40px",
-            fontSize: 18,
-            cursor: loading ? "not-allowed" : "pointer",
-            backgroundColor: loading ? "#666" : "#9146FF",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            opacity: loading ? 0.7 : 1,
-          }}
-        >
-          {loading ? "Connecting..." : "Join Stream"}
-        </button>
-      ) : (
-        <div style={{ marginTop: 20 }}>
-          <div
-            style={{
-              padding: 12,
-              background: "#0a2a0a",
-              borderRadius: 8,
-              marginBottom: 20,
-            }}
-          >
-            <p style={{ color: "#0f0", fontWeight: "bold", margin: 0 }}>
-              ✅ You're live! The host can see you now.
-            </p>
-          </div>
-          <button
-            onClick={leave}
-            style={{
-              padding: "12px 40px",
-              fontSize: 16,
-              cursor: "pointer",
-              backgroundColor: "#e74c3c",
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-            }}
-          >
-            Leave Stream
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+// ============ STYLES ============
+const styles = {
+  container: {
+    maxWidth: 700,
+    margin: "0 auto",
+    padding: 24,
+    fontFamily: "sans-serif",
+    textAlign: "center",
+    color: "#fff",
+    background: "#0a0a0a",
+    minHeight: "100vh",
+  },
+  heading: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  subtext: {
+    color: "#888",
+    marginBottom: 32,
+  },
+  buttonGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    alignItems: "center",
+  },
+  primaryBtn: {
+    padding: "14px 40px",
+    fontSize: 18,
+    cursor: "pointer",
+    backgroundColor: "#9146FF",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontWeight: "bold",
+  },
+  secondaryBtn: {
+    padding: "12px 32px",
+    fontSize: 16,
+    cursor: "pointer",
+    backgroundColor: "#444",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+  },
+  dangerBtn: {
+    padding: "12px 32px",
+    fontSize: 16,
+    cursor: "pointer",
+    backgroundColor: "#e74c3c",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  backBtn: {
+    padding: "10px 20px",
+    fontSize: 14,
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    color: "#888",
+    border: "1px solid #444",
+    borderRadius: 6,
+    marginTop: 12,
+  },
+  divider: {
+    width: "100%",
+    borderTop: "1px solid #333",
+    margin: "8px 0",
+    position: "relative",
+  },
+  dividerText: {
+    position: "absolute",
+    top: -10,
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "#0a0a0a",
+    padding: "0 12px",
+    color: "#666",
+    fontSize: 14,
+  },
+  joinBox: {
+    display: "flex",
+    gap: 8,
+    width: "100%",
+    maxWidth: 500,
+  },
+  input: {
+    flex: 1,
+    padding: "10px 14px",
+    background: "#1a1a1a",
+    color: "#fff",
+    border: "1px solid #444",
+    borderRadius: 6,
+    fontSize: 14,
+  },
+  video: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 10,
+    background: "#111",
+    margin: "20px auto",
+    display: "block",
+  },
+  canvas: {
+    width: "100%",
+    borderRadius: 10,
+    background: "#111",
+    border: "1px solid #333",
+  },
+  liveBadge: {
+    color: "#0f0",
+    fontWeight: "bold",
+    marginTop: 8,
+  },
+  controls: {
+    marginTop: 20,
+  },
+  inviteBox: {
+    marginTop: 24,
+    padding: 20,
+    background: "#1a1a1a",
+    borderRadius: 10,
+    textAlign: "left",
+  },
+  copyRow: {
+    display: "flex",
+    gap: 8,
+    marginTop: 12,
+  },
+  copyBtn: {
+    padding: "10px 20px",
+    cursor: "pointer",
+    backgroundColor: "#444",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    fontWeight: "bold",
+  },
+  srsInfo: {
+    color: "#666",
+    fontSize: 12,
+    marginTop: 12,
+  },
+};
