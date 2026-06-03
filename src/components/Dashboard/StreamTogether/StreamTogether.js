@@ -288,6 +288,7 @@ function GuestView({ inviteId }) {
       )}
     </div>
   );
+  
 }
 
 // Shared button style
