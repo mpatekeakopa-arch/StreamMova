@@ -1,7 +1,88 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 
-const SRS_RTC_BASE = "webrtc://srs.streammova.xyz/live";
+const RAW_API_BASE = process.env.REACT_APP_API_BASE_URL || "https://api.streammova.xyz";
+const SRS_RTC_BASE = process.env.REACT_APP_SRS_RTC_BASE_URL || "webrtc://srs.streammova.xyz/live";
+const CHANNEL_STORAGE_KEY = "streammova_connected_channels";
 
+// =========================
+// HELPER FUNCTIONS
+// =========================
+function readStoredChannels() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHANNEL_STORAGE_KEY) || "{}");
+    return Array.isArray(saved.connectedChannels) ? saved.connectedChannels : [];
+  } catch {
+    return [];
+  }
+}
+
+// =========================
+// AUDIO MIXER ENGINE
+// =========================
+class AudioMixer {
+  constructor() {
+    this.audioContext = null;
+    this.mixedDestination = null;
+    this.sources = new Map(); // id -> source node
+  }
+
+  initialize() {
+    if (this.audioContext) return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    this.audioContext = new AudioContextClass();
+    this.mixedDestination = this.audioContext.createMediaStreamDestination();
+  }
+
+  addSource(id, stream) {
+    if (!this.audioContext || !this.mixedDestination) return;
+    if (this.sources.has(id)) return;
+    if (!stream || stream.getAudioTracks().length === 0) return;
+
+    try {
+      // Isolate the single audio track to mix
+      const audioTrack = stream.getAudioTracks()[0];
+      const pureAudioStream = new MediaStream([audioTrack]);
+      const source = this.audioContext.createMediaStreamSource(pureAudioStream);
+      source.connect(this.mixedDestination);
+      this.sources.set(id, source);
+    } catch (error) {
+      console.warn(`Failed to add audio source for ${id}:`, error);
+    }
+  }
+
+  removeSource(id) {
+    if (!this.sources.has(id)) return;
+    try {
+      this.sources.get(id).disconnect();
+    } catch (error) {
+      console.warn(`Failed to disconnect audio source for ${id}:`, error);
+    }
+    this.sources.delete(id);
+  }
+
+  getMixedStream() {
+    return this.mixedDestination?.stream || null;
+  }
+
+  destroy() {
+    this.sources.forEach((source) => {
+      try {
+        source.disconnect();
+      } catch (e) {}
+    });
+    this.sources.clear();
+
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    this.mixedDestination = null;
+  }
+}
+
+// =========================
+// MAIN COMPONENT
+// =========================
 export default function StreamTogether() {
   const [mode, setMode] = useState(null); // null, 'host', 'guest'
   const [guestJoined, setGuestJoined] = useState(false);
@@ -12,22 +93,21 @@ export default function StreamTogether() {
 
   // Refs for the Host View
   const videoHostRef = useRef(null);
-  const videoGuestRef = useRef(null); // The stream player target for the host
+  const videoGuestRef = useRef(null); 
   const canvasRef = useRef(null);
   const hostStreamRef = useRef(null);
   
-  // Dedicated Ref for the Guest's independent local element preview
+  // Dedicated Ref for Guest Preview
   const guestLocalVideoRef = useRef(null); 
   const guestStreamRef = useRef(null);
 
+  // Core SRS & Compositing Engines
   const publisherRef = useRef(null);
+  const compositedPublisherRef = useRef(null);
   const playerRef = useRef(null);
   const pollRef = useRef(null);
   const animRef = useRef(null);
-  
-  // Audio Mixing Contexts for Host
-  const audioContextRef = useRef(null);
-  const audioDestinationRef = useRef(null);
+  const audioMixerRef = useRef(new AudioMixer());
 
   // Check URL for guest invite on mount
   useEffect(() => {
@@ -51,7 +131,7 @@ export default function StreamTogether() {
     });
   }, []);
 
-  // Canvas drawing
+  // Canvas Drawing / Layout Engine
   const startDrawing = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -64,23 +144,35 @@ export default function StreamTogether() {
       ctx.fillStyle = "#111";
       ctx.fillRect(0, 0, 1280, 720);
 
-      // Host left half
+      // Host Left Layout Frame
       if (videoHostRef.current?.readyState >= 2) {
+        ctx.save();
+        ctx.translate(640, 0);
+        ctx.scale(-1, 1);
         ctx.drawImage(videoHostRef.current, 0, 0, 640, 720);
-        ctx.fillStyle = "rgba(255,255,255,0.6)";
-        ctx.font = "18px Arial";
-        ctx.fillText("HOST", 20, 30);
+        ctx.restore();
+
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(15, 15, 80, 26);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText("HOST", 34, 33);
       }
 
-      // Guest right half
+      // Guest Right Layout Frame
       if (videoGuestRef.current?.readyState >= 2) {
-        ctx.drawImage(videoGuestRef.current, 640, 0, 640, 720);
-        ctx.fillStyle = "rgba(255,255,255,0.6)";
-        ctx.font = "18px Arial";
-        ctx.fillText("GUEST", 660, 30);
-      }
+        ctx.save();
+        ctx.translate(1280, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(videoGuestRef.current, 0, 0, 640, 720);
+        ctx.restore();
 
-      if (!videoGuestRef.current || videoGuestRef.current.readyState < 2) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(655, 15, 90, 26);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText("GUEST", 676, 33);
+      } else {
         ctx.fillStyle = "rgba(255,255,255,0.3)";
         ctx.font = "20px Arial";
         ctx.textAlign = "center";
@@ -95,7 +187,6 @@ export default function StreamTogether() {
   // ============ HOST FUNCTIONS ============
   const startAsHost = async () => {
     setMode("host");
-    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 1280, height: 720 },
@@ -120,42 +211,103 @@ export default function StreamTogether() {
   const goLive = async () => {
     await loadSdk();
     
-    // 1. Force the canvas capture stream to maintain explicit 720p resolution rules
-    const mixed = canvasRef.current.captureStream(30);
-    const canvasVideoTrack = mixed.getVideoTracks()[0];
+    // 1. Build and constrain output stream matrix
+    const mixedStream = canvasRef.current.captureStream(30);
+    const canvasVideoTrack = mixedStream.getVideoTracks()[0];
     if (canvasVideoTrack) {
       canvasVideoTrack.applyConstraints({
         width: { ideal: 1280 },
         height: { ideal: 720 }
-      }).catch(e => console.warn("Canvas constraint layout failed:", e));
+      }).catch(() => {});
     }
 
-    // 2. Setup Audio Mixer Node Pipeline
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    const audioContext = new AudioContextClass();
-    audioContextRef.current = audioContext;
-    
-    const destNode = audioContext.createMediaStreamDestination();
-    audioDestinationRef.current = destNode;
-
-    // Attach host mic track if present
-    if (hostStreamRef.current && hostStreamRef.current.getAudioTracks().length > 0) {
-      const hostSource = audioContext.createMediaStreamSource(new MediaStream([hostStreamRef.current.getAudioTracks()[0]]));
-      hostSource.connect(destNode);
+    // 2. Instantiate and load audio sources into the mixer
+    audioMixerRef.current.initialize();
+    if (hostStreamRef.current) {
+      audioMixerRef.current.addSource("host", hostStreamRef.current);
     }
 
-    // Combine Web Audio output track into the outbound stream canvas
-    const mixedAudioTracks = destNode.stream.getAudioTracks();
-    if (mixedAudioTracks.length > 0) {
-      mixed.addTrack(mixedAudioTracks[0]);
+    // 3. Inject mixed audio output tracks into canvas stream
+    const mixedAudioStream = audioMixerRef.current.getMixedStream();
+    if (mixedAudioStream && mixedAudioStream.getAudioTracks().length > 0) {
+      mixedStream.addTrack(mixedAudioStream.getAudioTracks()[0]);
     }
 
-    const pub = new window.SrsRtcPublisherAsync();
-    await pub.publish(`${SRS_RTC_BASE}/${roomId}`, mixed);
-    publisherRef.current = pub;
+    // 4. Publish Streams to SRS Room Points
+    const hostStreamKey = `${roomId}-host`;
+    const compositedStreamKey = `${roomId}-composited`;
+
+    // Publish primary feed for layout components to grab
+    const pubHost = new window.SrsRtcPublisherAsync();
+    await pubHost.publish(`${SRS_RTC_BASE}/${hostStreamKey}`, hostStreamRef.current);
+    publisherRef.current = pubHost;
+
+    // Publish raw composite stream target for backend/FFmpeg pulls
+    const pubComposite = new window.SrsRtcPublisherAsync();
+    await pubComposite.publish(`${SRS_RTC_BASE}/${compositedStreamKey}`, mixedStream);
+    compositedPublisherRef.current = pubComposite;
+
     setIsLive(true);
 
-    // Poll for guest
+    // 5. Fire external streaming endpoints from storage configurations
+    const selectedDestinations = readStoredChannels();
+    const savedTokens = JSON.parse(localStorage.getItem(CHANNEL_STORAGE_KEY) || "{}");
+
+    selectedDestinations.forEach(async (channel) => {
+      try {
+        if (channel.platform === "twitch" && savedTokens.twitchStreamKey) {
+          await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channelId: roomId,
+              streamKey: savedTokens.twitchStreamKey,
+              compositedStreamKey,
+            }),
+          });
+        }
+
+        if (channel.platform === "youtube" && savedTokens.youtubeAccessToken) {
+          await fetch(`${RAW_API_BASE}/api/youtube/live/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channelId: roomId,
+              accessToken: savedTokens.youtubeAccessToken,
+              refreshToken: savedTokens.youtubeRefreshToken,
+              title: "Stream Together Live",
+              description: "Live from Stream Together",
+              compositedStreamKey,
+            }),
+          });
+        }
+
+        if (channel.platform === "facebook") {
+          const pages = savedTokens.facebookPages || [];
+          const selectedPageId = savedTokens.selectedFacebookPageId;
+          const page = pages.find((p) => p.id === selectedPageId);
+
+          if (page?.access_token) {
+            await fetch(`${RAW_API_BASE}/api/facebook/live/start`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channelId: roomId,
+                title: "Stream Together Live",
+                description: "Live from Stream Together",
+                pageId: page.id,
+                pageAccessToken: page.access_token,
+                compositedStreamKey,
+              }),
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Endpoint push failure for ${channel.platform}:`, err);
+      }
+    });
+
+    // 6. Monitor room loop to bring in guest streaming links
     pollRef.current = setInterval(async () => {
       if (!window.SrsRtcPlayerAsync) return;
       try {
@@ -174,10 +326,9 @@ export default function StreamTogether() {
           playerRef.current = player;
           setGuestJoined(true);
           
-          // 3. Dynamically inject the newly connected guest audio track into the master composite mix
-          if (player.stream && player.stream.getAudioTracks().length > 0 && audioContextRef.current && audioDestinationRef.current) {
-            const guestSource = audioContextRef.current.createMediaStreamSource(new MediaStream([player.stream.getAudioTracks()[0]]));
-            guestSource.connect(audioDestinationRef.current);
+          // Connect guest mic stream into our mixer pipeline
+          if (player.stream) {
+            audioMixerRef.current.addSource("guest", player.stream);
           }
           
           clearInterval(pollRef.current);
@@ -196,10 +347,19 @@ export default function StreamTogether() {
   const stopHost = () => {
     clearInterval(pollRef.current);
     cancelAnimationFrame(animRef.current);
+    
+    // Terminate platform delivery tasks
+    fetch(`${RAW_API_BASE}/api/twitch/live/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelId: roomId }) }).catch(() => {});
+    fetch(`${RAW_API_BASE}/api/youtube/live/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelId: roomId }) }).catch(() => {});
+    fetch(`${RAW_API_BASE}/api/facebook/live/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelId: roomId }) }).catch(() => {});
+
     publisherRef.current?.close();
+    compositedPublisherRef.current?.close();
     playerRef.current?.close();
+    
     hostStreamRef.current?.getTracks().forEach(t => t.stop());
-    if (audioContextRef.current) audioContextRef.current.close();
+    audioMixerRef.current.destroy();
+
     setIsLive(false);
     setGuestJoined(false);
     setMode(null);
@@ -247,16 +407,17 @@ export default function StreamTogether() {
     setRoomId("");
   };
 
-  // Global Cleanup
+  // Global Mounting Cleanup
   useEffect(() => {
     return () => {
       clearInterval(pollRef.current);
       if (animRef.current) cancelAnimationFrame(animRef.current);
       if (publisherRef.current) publisherRef.current.close();
+      if (compositedPublisherRef.current) compositedPublisherRef.current.close();
       if (playerRef.current) playerRef.current.close();
       if (hostStreamRef.current) hostStreamRef.current.getTracks().forEach(t => t.stop());
       if (guestStreamRef.current) guestStreamRef.current.getTracks().forEach(t => t.stop());
-      if (audioContextRef.current) audioContextRef.current.close();
+      audioMixerRef.current.destroy();
     };
   }, []);
 
@@ -333,11 +494,9 @@ export default function StreamTogether() {
     <div style={styles.container}>
       <h2 style={styles.heading}>Host Stream</h2>
 
-      {/* Preview Canvas */}
       <canvas ref={canvasRef} style={styles.canvas} />
       {isLive && <p style={styles.liveBadge}>● LIVE</p>}
 
-      {/* Controls */}
       <div style={styles.controls}>
         {!isLive ? (
           <button onClick={goLive} style={styles.primaryBtn}>
@@ -350,7 +509,6 @@ export default function StreamTogether() {
         )}
       </div>
 
-      {/* Invite Link */}
       {inviteLink && (
         <div style={styles.inviteBox}>
           <h3>📋 Invite Guest</h3>
@@ -363,162 +521,33 @@ export default function StreamTogether() {
           <p style={{ color: guestJoined ? "#0f0" : "#888", marginTop: 12 }}>
             {guestJoined ? "✅ Guest connected" : "⏳ Waiting for guest..."}
           </p>
-          {isLive && (
-            <p style={styles.srsInfo}>
-              SRS Output: <code>{SRS_RTC_BASE}/{roomId}</code>
-            </p>
-          )}
         </div>
       )}
 
-      {/* Hidden videos for compositor */}
       <video ref={videoHostRef} muted playsInline style={{ display: "none" }} />
     </div>
   );
 }
 
-// ============ STYLES ============
+// ============ INLINE COMPONENT STYLES ============
 const styles = {
-  container: {
-    maxWidth: 700,
-    margin: "0 auto",
-    padding: 24,
-    fontFamily: "sans-serif",
-    textAlign: "center",
-    color: "#fff",
-    background: "#0a0a0a",
-    minHeight: "100vh",
-  },
-  heading: {
-    fontSize: 28,
-    marginBottom: 8,
-  },
-  subtext: {
-    color: "#888",
-    marginBottom: 32,
-  },
-  buttonGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 16,
-    alignItems: "center",
-  },
-  primaryBtn: {
-    padding: "14px 40px",
-    fontSize: 18,
-    cursor: "pointer",
-    backgroundColor: "#9146FF",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    fontWeight: "bold",
-  },
-  secondaryBtn: {
-    padding: "12px 32px",
-    fontSize: 16,
-    cursor: "pointer",
-    backgroundColor: "#444",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-  },
-  dangerBtn: {
-    padding: "12px 32px",
-    fontSize: 16,
-    cursor: "pointer",
-    backgroundColor: "#e74c3c",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  backBtn: {
-    padding: "10px 20px",
-    fontSize: 14,
-    cursor: "pointer",
-    backgroundColor: "transparent",
-    color: "#888",
-    border: "1px solid #444",
-    borderRadius: 6,
-    marginTop: 12,
-  },
-  divider: {
-    width: "100%",
-    borderTop: "1px solid #333",
-    margin: "8px 0",
-    position: "relative",
-  },
-  dividerText: {
-    position: "absolute",
-    top: -10,
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "#0a0a0a",
-    padding: "0 12px",
-    color: "#666",
-    fontSize: 14,
-  },
-  joinBox: {
-    display: "flex",
-    gap: 8,
-    width: "100%",
-    maxWidth: 500,
-  },
-  input: {
-    flex: 1,
-    padding: "10px 14px",
-    background: "#1a1a1a",
-    color: "#fff",
-    border: "1px solid #444",
-    borderRadius: 6,
-    fontSize: 14,
-  },
-  video: {
-    width: "100%",
-    maxWidth: 400,
-    borderRadius: 10,
-    background: "#111",
-    margin: "20px auto",
-    display: "block",
-  },
-  canvas: {
-    width: "100%",
-    borderRadius: 10,
-    background: "#111",
-    border: "1px solid #333",
-  },
-  liveBadge: {
-    color: "#0f0",
-    fontWeight: "bold",
-    marginTop: 8,
-  },
-  controls: {
-    marginTop: 20,
-  },
-  inviteBox: {
-    marginTop: 24,
-    padding: 20,
-    background: "#1a1a1a",
-    borderRadius: 10,
-    textAlign: "left",
-  },
-  copyRow: {
-    display: "flex",
-    gap: 8,
-    marginTop: 12,
-  },
-  copyBtn: {
-    padding: "10px 20px",
-    cursor: "pointer",
-    backgroundColor: "#444",
-    color: "#fff",
-    border: "none",
-    borderRadius: 6,
-    fontWeight: "bold",
-  },
-  srsInfo: {
-    color: "#666",
-    fontSize: 12,
-    marginTop: 12,
-  },
+  container: { maxWidth: 700, margin: "0 auto", padding: 24, fontFamily: "sans-serif", textAlign: "center", color: "#fff", background: "#0a0a0a", minHeight: "100vh" },
+  heading: { fontSize: 28, marginBottom: 8 },
+  subtext: { color: "#888", marginBottom: 32 },
+  buttonGroup: { display: "flex", flexDirection: "column", gap: 16, alignItems: "center" },
+  primaryBtn: { padding: "14px 40px", fontSize: 18, cursor: "pointer", backgroundColor: "#9146FF", color: "#fff", border: "none", borderRadius: 8, fontWeight: "bold" },
+  secondaryBtn: { padding: "12px 32px", fontSize: 16, cursor: "pointer", backgroundColor: "#444", color: "#fff", border: "none", borderRadius: 8 },
+  dangerBtn: { padding: "12px 32px", fontSize: 16, cursor: "pointer", backgroundColor: "#e74c3c", color: "#fff", border: "none", borderRadius: 8, marginTop: 16 },
+  backBtn: { padding: "10px 20px", fontSize: 14, cursor: "pointer", backgroundColor: "transparent", color: "#888", border: "1px solid #444", borderRadius: 6, marginTop: 12 },
+  divider: { width: "100%", borderTop: "1px solid #333", margin: "8px 0", position: "relative" },
+  dividerText: { position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: "#0a0a0a", padding: "0 12px", color: "#666", fontSize: 14 },
+  joinBox: { display: "flex", gap: 8, width: "100%", maxWidth: 500 },
+  input: { flex: 1, padding: "10px 14px", background: "#1a1a1a", color: "#fff", border: "1px solid #444", borderRadius: 6, fontSize: 14 },
+  video: { width: "100%", maxWidth: 400, borderRadius: 10, background: "#111", margin: "20px auto", display: "block" },
+  canvas: { width: "100%", borderRadius: 10, background: "#111", border: "1px solid #333" },
+  liveBadge: { color: "#0f0", fontWeight: "bold", marginTop: 8 },
+  controls: { marginTop: 20 },
+  inviteBox: { marginTop: 24, padding: 20, background: "#1a1a1a", borderRadius: 10, textAlign: "left" },
+  copyRow: { display: "flex", gap: 8, marginTop: 12 },
+  copyBtn: { padding: "10px 20px", cursor: "pointer", backgroundColor: "#444", color: "#fff", border: "none", borderRadius: 6, fontWeight: "bold" }
 };
