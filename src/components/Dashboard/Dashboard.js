@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./Dashboard.css";
 import { getInitials } from "./utils/helpers";
 import { availablePlatforms } from "./utils/constants";
@@ -91,14 +91,10 @@ function Dashboard() {
     dashboardRuntime.recordedVideo
   );
 
-  // Enhanced Schedule/Reminder State
-  const [showSchedulePicker, setShowSchedulePicker] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({
     title: "",
-    date: "",
-    time: "",
+    startAtLocal: "",
   });
-  const [nextStreamDate, setNextStreamDate] = useState(null);
 
   const scheduleTimeoutRef = useRef(null);
   const [scheduleStatus, setScheduleStatus] = useState({
@@ -111,12 +107,10 @@ function Dashboard() {
   const streamRef = useRef(null);
   const modalRef = useRef(null);
 
-  // Refs to hold the latest values for cleanup (avoids dependency issues)
   const cameraStreamRef = useRef(cameraStream);
   const uploadedVideoRef = useRef(uploadedVideo);
   const recordedVideoRef = useRef(recordedVideo);
 
-  // Keep refs in sync with state
   useEffect(() => {
     cameraStreamRef.current = cameraStream;
     dashboardRuntime.cameraStream = cameraStream;
@@ -154,71 +148,6 @@ function Dashboard() {
     (page) => page.id === selectedFacebookPageId
   );
 
-  // Notification permission and schedule notification
-  const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) return false;
-    if (Notification.permission === "granted") return true;
-    if (Notification.permission === "denied") return false;
-
-    const result = await Notification.requestPermission();
-    return result === "granted";
-  };
-
-  const showScheduleNotification = async (streamTitle) => {
-    const allowed = await requestNotificationPermission();
-
-    if (allowed) {
-      new Notification("StreamMova - Stream Reminder", {
-        body: streamTitle
-          ? `Time to start streaming: ${streamTitle}`
-          : "It's time to start your scheduled stream!",
-        icon: "/favicon.ico",
-        tag: "stream-reminder",
-      });
-    } else {
-      alert(streamTitle ? `Time to start: ${streamTitle}` : "It's time to start streaming!");
-    }
-  };
-
-  const checkAndSetReminder = useCallback((targetDate) => {
-    const now = Date.now();
-    const targetMs = targetDate.getTime();
-
-    if (targetMs <= now) {
-      setScheduleStatus({
-        active: false,
-        message: "Selected time has already passed.",
-        startAtMs: null,
-      });
-      return;
-    }
-
-    // Clear existing timeout
-    if (scheduleTimeoutRef.current) {
-      clearTimeout(scheduleTimeoutRef.current);
-    }
-
-    const timeUntilStream = targetMs - now;
-    
-    scheduleTimeoutRef.current = setTimeout(async () => {
-      await showScheduleNotification(scheduleForm.title);
-      setScheduleStatus({
-        active: false,
-        message: "Time to stream! Click Start Multistream to go live.",
-        startAtMs: null,
-      });
-      setNextStreamDate(null);
-      scheduleTimeoutRef.current = null;
-    }, timeUntilStream);
-
-    setScheduleStatus({
-      active: true,
-      message: `Reminder set for ${targetDate.toLocaleString()}`,
-      startAtMs: targetMs,
-    });
-  }, [scheduleForm.title]);
-
-  // Load saved channels and schedule from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("streammova_connected_channels");
 
@@ -244,36 +173,12 @@ function Dashboard() {
         setFacebookPages(data.facebookPages || []);
         setSelectedFacebookPageId(data.selectedFacebookPageId || "");
         setFacebookConnectStatus(data.facebookConnectStatus || "");
-        
-        // Load schedule if exists
-        if (data.nextStreamDate) {
-          const savedDate = new Date(data.nextStreamDate);
-          setNextStreamDate(savedDate);
-          checkAndSetReminder(savedDate);
-        }
       } catch (err) {
         console.error("Failed to load saved channels:", err);
       }
     }
-    
-    // Load schedule separately
-    const savedSchedule = localStorage.getItem("streammova_schedule");
-    if (savedSchedule) {
-      try {
-        const scheduleData = JSON.parse(savedSchedule);
-        setScheduleForm(scheduleData.scheduleForm || { title: "", date: "", time: "" });
-        if (scheduleData.nextStreamDate) {
-          const savedDate = new Date(scheduleData.nextStreamDate);
-          setNextStreamDate(savedDate);
-          checkAndSetReminder(savedDate);
-        }
-      } catch (err) {
-        console.error("Failed to load schedule:", err);
-      }
-    }
-  }, [checkAndSetReminder]);
+  }, []);
 
-  // Save channels to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem(
       "streammova_connected_channels",
@@ -293,7 +198,6 @@ function Dashboard() {
         facebookPages,
         selectedFacebookPageId,
         facebookConnectStatus,
-        nextStreamDate: nextStreamDate?.toISOString() || null,
       })
     );
   }, [
@@ -312,19 +216,7 @@ function Dashboard() {
     facebookPages,
     selectedFacebookPageId,
     facebookConnectStatus,
-    nextStreamDate,
   ]);
-
-  // Save schedule to localStorage
-  useEffect(() => {
-    localStorage.setItem(
-      "streammova_schedule",
-      JSON.stringify({
-        scheduleForm,
-        nextStreamDate: nextStreamDate?.toISOString() || null,
-      })
-    );
-  }, [scheduleForm, nextStreamDate]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -359,14 +251,6 @@ function Dashboard() {
       [name]: value,
       testStatus: name === "streamKey" ? "idle" : prev.testStatus,
       testMessage: name === "streamKey" ? "" : prev.testMessage,
-    }));
-  };
-
-  const handleScheduleInputChange = (e) => {
-    const { name, value } = e.target;
-    setScheduleForm((prev) => ({
-      ...prev,
-      [name]: value,
     }));
   };
 
@@ -584,7 +468,7 @@ function Dashboard() {
       },
       body: JSON.stringify({
         channelId,
-        title: scheduleForm.title || "StreamMova Live",
+        title: "StreamMova Live",
         description: "Live from StreamMova",
         pageId: selectedFacebookPage.id,
         pageAccessToken: selectedFacebookPage.access_token,
@@ -698,7 +582,7 @@ function Dashboard() {
           channelId,
           accessToken: youtubeAccessToken,
           refreshToken: youtubeRefreshToken,
-          title: scheduleForm.title || "StreamMova Live",
+          title: "StreamMova Live",
           description: "Live from StreamMova",
           compositedStreamKey: compositedKey
         }),
@@ -706,7 +590,6 @@ function Dashboard() {
 
       const data = await response.json();
 
-      // Handle token refresh safely
       if (response.status === 401 && data.newAccessToken) {
         setYoutubeAccessToken(data.newAccessToken);
         
@@ -719,7 +602,7 @@ function Dashboard() {
             channelId,
             accessToken: data.newAccessToken,
             refreshToken: youtubeRefreshToken,
-            title: scheduleForm.title || "StreamMova Live",
+            title: "StreamMova Live",
             description: "Live from StreamMova",
             compositedStreamKey: compositedKey
           }),
@@ -840,17 +723,6 @@ function Dashboard() {
         if (hasYouTube) livePlatforms.push("YouTube");
 
         setLiveStatus(`Live on ${livePlatforms.join(" and ")}.`);
-        
-        // Clear schedule after going live
-        if (nextStreamDate) {
-          setNextStreamDate(null);
-          setScheduleForm({ title: "", date: "", time: "" });
-          setScheduleStatus({
-            active: false,
-            message: "Stream started!",
-            startAtMs: null,
-          });
-        }
       } else {
         await closeCamera();
       }
@@ -1015,43 +887,75 @@ function Dashboard() {
     link.remove();
   };
 
+  const requestNotificationPermission = async () => {
+    if (!("Notification" in window)) return false;
+    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "denied") return false;
+
+    const result = await Notification.requestPermission();
+    return result === "granted";
+  };
+
+  const showScheduleNotification = async (title) => {
+    const allowed = await requestNotificationPermission();
+
+    if (allowed) {
+      new Notification("StreamMova Scheduled Stream", {
+        body: title
+          ? `It's time to start: ${title}`
+          : "It's time to start streaming!",
+      });
+    } else {
+      alert(title ? `It's time to start: ${title}` : "It's time to start streaming!");
+    }
+  };
+
   const scheduleSession = async () => {
     setError("");
 
-    const { date, time } = scheduleForm;
+    const { title, startAtLocal } = scheduleForm;
 
-    if (!date || !time) {
-      setError("Please select both a date and time for the reminder.");
+    if (!startAtLocal) {
+      setError("Pick a date/time to schedule.");
       return;
     }
 
-    const dateTimeString = `${date}T${time}:00`;
-    const startMs = new Date(dateTimeString).getTime();
+    const startMs = new Date(startAtLocal).getTime();
 
     if (!Number.isFinite(startMs)) {
-      setError("Invalid date/time. Please select a valid date and time.");
+      setError("Invalid schedule date/time.");
       return;
     }
 
     const now = Date.now();
 
     if (startMs <= now + 2000) {
-      setError("Please select a time at least a few seconds in the future.");
+      setError("Choose a time at least a few seconds in the future.");
       return;
     }
 
-    // Request notification permission
-    await requestNotificationPermission();
+    if (scheduleTimeoutRef.current) {
+      clearTimeout(scheduleTimeoutRef.current);
+      scheduleTimeoutRef.current = null;
+    }
 
-    // Set the next stream date
-    const streamDate = new Date(startMs);
-    setNextStreamDate(streamDate);
-    
-    // Set up the reminder
-    checkAndSetReminder(streamDate);
-    
-    // Close the schedule picker
-    setShowSchedulePicker(false);
+    setScheduleStatus({
+      active: true,
+      message: `Scheduled for ${new Date(startMs).toLocaleString()}`,
+      startAtMs: startMs,
+    });
+
+    scheduleTimeoutRef.current = setTimeout(async () => {
+      await showScheduleNotification(title);
+      setScheduleStatus({
+        active: false,
+        message: "Schedule triggered.",
+        startAtMs: null,
+      });
+      scheduleTimeoutRef.current = null;
+    }, startMs - now);
+
+    await requestNotificationPermission();
   };
 
   const cancelSchedule = () => {
@@ -1060,57 +964,13 @@ function Dashboard() {
       scheduleTimeoutRef.current = null;
     }
 
-    setNextStreamDate(null);
-    setScheduleForm({ title: "", date: "", time: "" });
     setScheduleStatus({
       active: false,
-      message: "Reminder cancelled.",
+      message: "Schedule cancelled.",
       startAtMs: null,
     });
   };
 
-  const toggleSchedulePicker = () => {
-    setShowSchedulePicker(!showSchedulePicker);
-    if (!showSchedulePicker) {
-      setError("");
-    }
-  };
-
-  // Format next stream date for display
-  const formatNextStream = () => {
-    if (!nextStreamDate) return null;
-    
-    const now = new Date();
-    const diff = nextStreamDate - now;
-    
-    if (diff < 0) return null;
-    
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
-    const dateStr = nextStreamDate.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric'
-    });
-    
-    const timeStr = nextStreamDate.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    
-    if (days > 0) {
-      return `${dateStr} at ${timeStr} (in ${days}d ${hours}h ${minutes}m)`;
-    } else if (hours > 0) {
-      return `${dateStr} at ${timeStr} (in ${hours}h ${minutes}m)`;
-    } else {
-      return `${dateStr} at ${timeStr} (in ${minutes}m)`;
-    }
-  };
-
-  // Handle OAuth callbacks
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
@@ -1236,182 +1096,181 @@ function Dashboard() {
     }
   }, []);
 
-  // Update channel status based on live state
-  useEffect(() => {
-    setConnectedChannels((prev) =>
-      prev.map((channel) => {
-        if (channel.platform === "twitch") {
-          return {
-            ...channel,
-            status: twitchLiveActive ? "live" : "connected",
-          };
-        }
-
-        if (channel.platform === "facebook") {
-          return {
-            ...channel,
-            status: facebookLiveActive ? "live" : "connected",
-          };
-        }
-
-        if (channel.platform === "youtube") {
-          return {
-            ...channel,
-            status: youtubeLiveActive ? "live" : "connected",
-          };
-        }
-
-        return channel;
-      })
-    );
-  }, [twitchLiveActive, facebookLiveActive, youtubeLiveActive]);
-
-  // Keep live media running while users move around the app.
-  useEffect(() => {
-    return () => {
-      streamRef.current = dashboardRuntime.cameraStream;
-    };
-  }, []);
-
-  // Handle click outside modal
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (modalRef.current && !modalRef.current.contains(event.target)) {
-        setShowChannelModal(false);
-      }
-    };
-
-    if (showChannelModal) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showChannelModal]);
-
-  // Get minimum date for the calendar (today)
-  const getTodayString = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   return (
-    <div className={`streammova-app ${isSidebarOpen ? "" : "sidebar-collapsed"}`}>
-      <ChannelModal
-        showChannelModal={showChannelModal}
-        channelForm={channelForm}
-        availablePlatforms={availablePlatforms}
-        modalRef={modalRef}
-        handleCloseChannelModal={handleCloseChannelModal}
-        handlePlatformSelect={handlePlatformSelect}
-        handleInputChange={handleInputChange}
-        handleTestConnection={handleTestConnection}
-        handleFacebookOAuth={handleFacebookOAuth}
-        handleTwitchOAuth={handleTwitchOAuth}
-        handleYouTubeOAuth={handleYouTubeOAuth}
-        facebookConnectStatus={facebookConnectStatus}
-        twitchConnected={twitchConnected}
-        twitchUsername={twitchUsername}
-        youtubeConnected={youtubeConnected}
-        youtubeChannelName={youtubeChannelName}
+    <div className="dashboard-container">
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        activeNav={activeNav} 
+        onNavClick={handleNavClick} 
+        onToggle={toggleSidebar} 
       />
-
-      <Sidebar
-        isSidebarOpen={isSidebarOpen}
-        activeNav={activeNav}
-        toggleSidebar={toggleSidebar}
-        handleNavClick={handleNavClick}
-      />
-
-      <div className="main-content">
-        <Header
-          displayName={displayName}
-          planName={planName}
-          avatarInitials={avatarInitials}
-          user={{ ...authUser, profile }}
+      
+      <div className="dashboard-main">
+        <Header 
+          avatarInitials={avatarInitials} 
+          planName={planName} 
+          onToggleSidebar={toggleSidebar} 
         />
 
         <div className="dashboard-content">
-          <StreamOutput
-            isStreaming={isStreaming}
-            isCameraOn={isCameraOn}
-            error={error || liveStatus}
-            uploadedVideo={uploadedVideo}
-            recordedVideo={recordedVideo}
-            videoRef={videoRef}
-            streamRef={streamRef}
-            cameraStream={cameraStream}
-            openCamera={openCamera}
-            closeCamera={closeCamera}
-            connectedChannels={connectedChannels}
-            handleStreamToggle={handleStreamToggle}
-            handleOpenChannelModal={handleOpenChannelModal}
-            handleRemoveChannel={handleRemoveChannel}
-            facebookPages={facebookPages}
-            selectedFacebookPageId={selectedFacebookPageId}
-            setSelectedFacebookPageId={setSelectedFacebookPageId}
-            facebookConnectStatus={facebookConnectStatus}
-            twitchConnected={twitchConnected}
-            twitchUsername={twitchUsername}
-            youtubeConnected={youtubeConnected}
-            youtubeChannelName={youtubeChannelName}
-            nextStreamDate={nextStreamDate}
-            formatNextStream={formatNextStream}
-            toggleSchedulePicker={toggleSchedulePicker}
-            showSchedulePicker={showSchedulePicker}
-            scheduleForm={scheduleForm}
-            handleScheduleInputChange={handleScheduleInputChange}
-            scheduleSession={scheduleSession}
-            cancelSchedule={cancelSchedule}
-            scheduleStatus={scheduleStatus}
-            getTodayString={getTodayString}
-          />
+          {error && <div className="dashboard-error-banner">{error}</div>}
+          
+          {activeNav === "dashboard" && (
+            <>
+              <div className="dashboard-grid">
+                <div className="dashboard-left-column">
+                  <StreamOutput
+                    videoRef={videoRef}
+                    isStreaming={isStreaming}
+                    liveStatus={liveStatus}
+                    onToggleStream={() => handleStreamToggle()}
+                    isRecording={isRecording}
+                    onStartRecording={startRecording}
+                    onStopRecording={stopRecording}
+                    recordedVideo={recordedVideo}
+                    onDownloadRecording={downloadRecording}
+                  />
+                  
+                  <QuickActions
+                    onOpenChannelModal={handleOpenChannelModal}
+                    onUploadClick={openUploadPicker}
+                    hasUploadedVideo={!!uploadedVideo}
+                    onSendUploaded={handleSendUploadedToChannels}
+                    uploadTitle={uploadTitle}
+                    setUploadTitle={setUploadTitle}
+                  />
 
-          <QuickActions
-            uploadInputRef={uploadInputRef}
-            uploadedVideo={uploadedVideo}
-            uploadTitle={uploadTitle}
-            setUploadTitle={setUploadTitle}
-            isRecording={isRecording}
-            recordedVideo={recordedVideo}
-            scheduleForm={scheduleForm}
-            setScheduleForm={setScheduleForm}
-            scheduleStatus={scheduleStatus}
-            error={error}
-            setError={setError}
-            connectedChannels={connectedChannels}
-            streamRef={streamRef}
-            videoRef={videoRef}
-            openUploadPicker={openUploadPicker}
-            handleUploadSelected={handleUploadSelected}
-            handleSendUploadedToChannels={handleSendUploadedToChannels}
-            startRecording={startRecording}
-            stopRecording={stopRecording}
-            downloadRecording={downloadRecording}
-            scheduleSession={scheduleSession}
-            cancelSchedule={cancelSchedule}
-            showSchedulePicker={showSchedulePicker}
-            toggleSchedulePicker={toggleSchedulePicker}
-            handleScheduleInputChange={handleScheduleInputChange}
-            getTodayString={getTodayString}
-            nextStreamDate={nextStreamDate}
-            formatNextStream={formatNextStream}
-          />
+                  <input
+                    type="file"
+                    ref={uploadInputRef}
+                    onChange={handleUploadSelected}
+                    style={{ display: "none" }}
+                    accept="video/*"
+                  />
+                </div>
 
-          <Analytics
-            connectedChannels={connectedChannels}
-            isStreaming={isStreaming}
-            isCameraOn={isCameraOn}
-            isRecording={isRecording}
-            uploadedVideo={uploadedVideo}
-            recordedVideo={recordedVideo}
-            scheduleStatus={scheduleStatus}
-            nextStreamDate={nextStreamDate}
-          />
+                <div className="dashboard-right-column">
+                  {/* Updated Scheduler Card */}
+                  <div className="dashboard-card schedule-card">
+                    <h3>Set a Reminder</h3>
+                    <p className="card-description">
+                      Choose a custom date and time to lock in your next stream event window.
+                    </p>
+                    <div className="schedule-form-group">
+                      <label htmlFor="schedule-title">Stream Title</label>
+                      <input
+                        id="schedule-title"
+                        type="text"
+                        placeholder="e.g., Weekend Dev Q&A Session"
+                        value={scheduleForm.title}
+                        onChange={(e) =>
+                          setScheduleForm((prev) => ({ ...prev, title: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="schedule-form-group">
+                      <label htmlFor="schedule-date">Date & Time</label>
+                      <input
+                        id="schedule-date"
+                        type="datetime-local"
+                        value={scheduleForm.startAtLocal}
+                        onChange={(e) =>
+                          setScheduleForm((prev) => ({ ...prev, startAtLocal: e.target.value }))
+                        }
+                      />
+                    </div>
+                    
+                    {scheduleStatus.active ? (
+                      <div className="schedule-status-active">
+                        <p>{scheduleStatus.message}</p>
+                        <button className="btn btn-danger btn-sm" onClick={cancelSchedule}>
+                          Cancel Reminder
+                        </button>
+                      </div>
+                    ) : (
+                      <button className="btn btn-primary w-100" onClick={scheduleSession}>
+                        Save Schedule Window
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="dashboard-card next-stream-card">
+                    <h3>Next Scheduled Stream</h3>
+                    <div className="next-stream-display">
+                      {scheduleStatus.active ? (
+                        <>
+                          <div className="stream-time-badge">
+                            <i className="far fa-calendar-alt"></i>{" "}
+                            {new Date(scheduleStatus.startAtMs).toLocaleDateString()} at{" "}
+                            {new Date(scheduleStatus.startAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                          <h4>{scheduleForm.title || "Untitled Live Stream"}</h4>
+                        </>
+                      ) : (
+                        <p className="no-stream-text">No active schedule window set.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="dashboard-card channels-card">
+                    <div className="card-header-flex">
+                      <h3>Connected Destination Channels</h3>
+                      <button className="btn btn-secondary btn-sm" onClick={handleOpenChannelModal}>
+                        <i className="fas fa-plus"></i> Add
+                      </button>
+                    </div>
+                    {connectedChannels.length === 0 ? (
+                      <p className="no-channels-text">No target platforms linked yet.</p>
+                    ) : (
+                      <ul className="connected-channels-list">
+                        {connectedChannels.map((chan) => (
+                          <li key={chan.id} className="channel-item-row">
+                            <div className="channel-item-left">
+                              <img src={chan.logo} alt={chan.name} className="channel-mini-logo" />
+                              <div>
+                                <span className="channel-platform-name">{chan.name}</span>
+                                <span className="channel-meta-detail">
+                                  {chan.pageName || chan.displayName || "Custom Integration Target"}
+                                </span>
+                              </div>
+                            </div>
+                            <button className="btn-remove-channel" onClick={() => handleRemoveChannel(chan.id)}>
+                              <i className="fas fa-trash-alt"></i>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeNav === "analytics" && <Analytics />}
         </div>
       </div>
+
+      {showChannelModal && (
+        <ChannelModal
+          form={channelForm}
+          onClose={handleCloseChannelModal}
+          onPlatformSelect={handlePlatformSelect}
+          onInputChange={handleInputChange}
+          onTestConnection={handleTestConnection}
+          onFacebookOAuth={handleFacebookOAuth}
+          onTwitchOAuth={handleTwitchOAuth}
+          onYouTubeOAuth={handleYouTubeOAuth}
+          facebookConnectStatus={facebookConnectStatus}
+          facebookPages={facebookPages}
+          selectedFacebookPageId={selectedFacebookPageId}
+          setSelectedFacebookPageId={setSelectedFacebookPageId}
+          twitchConnected={twitchConnected}
+          twitchUsername={twitchUsername}
+          youtubeConnected={youtubeConnected}
+          youtubeChannelName={youtubeChannelName}
+        />
+      )}
     </div>
   );
 }
