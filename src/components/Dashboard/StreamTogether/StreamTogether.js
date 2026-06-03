@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 
 const RAW_API_BASE = process.env.REACT_APP_API_BASE_URL || "https://api.streammova.xyz";
 const SRS_RTC_BASE = process.env.REACT_APP_SRS_RTC_BASE_URL || "webrtc://srs.streammova.xyz/live";
 const CHANNEL_STORAGE_KEY = "streammova_connected_channels";
 
 // =========================
-// HELPER FUNCTIONS
+// STORAGE HELPER
 // =========================
 function readStoredChannels() {
   try {
@@ -23,7 +23,7 @@ class AudioMixer {
   constructor() {
     this.audioContext = null;
     this.mixedDestination = null;
-    this.sources = new Map(); // id -> source node
+    this.sources = new Map();
   }
 
   initialize() {
@@ -39,7 +39,6 @@ class AudioMixer {
     if (!stream || stream.getAudioTracks().length === 0) return;
 
     try {
-      // Isolate the single audio track to mix
       const audioTrack = stream.getAudioTracks()[0];
       const pureAudioStream = new MediaStream([audioTrack]);
       const source = this.audioContext.createMediaStreamSource(pureAudioStream);
@@ -66,9 +65,7 @@ class AudioMixer {
 
   destroy() {
     this.sources.forEach((source) => {
-      try {
-        source.disconnect();
-      } catch (e) {}
+      try { source.disconnect(); } catch (e) {}
     });
     this.sources.clear();
 
@@ -91,17 +88,15 @@ export default function StreamTogether() {
   const [copied, setCopied] = useState(false);
   const [roomId, setRoomId] = useState("");
 
-  // Refs for the Host View
+  // Streams & DOM Elements Refs
   const videoHostRef = useRef(null);
   const videoGuestRef = useRef(null); 
   const canvasRef = useRef(null);
   const hostStreamRef = useRef(null);
-  
-  // Dedicated Ref for Guest Preview
   const guestLocalVideoRef = useRef(null); 
   const guestStreamRef = useRef(null);
 
-  // Core SRS & Compositing Engines
+  // Core Orchestration & SDK Engines
   const publisherRef = useRef(null);
   const compositedPublisherRef = useRef(null);
   const playerRef = useRef(null);
@@ -109,7 +104,7 @@ export default function StreamTogether() {
   const animRef = useRef(null);
   const audioMixerRef = useRef(new AudioMixer());
 
-  // Check URL for guest invite on mount
+  // Intercept invite links on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const room = params.get("room");
@@ -119,7 +114,7 @@ export default function StreamTogether() {
     }
   }, []);
 
-  // Load SRS SDK
+  // Safe SDK loader hook
   const loadSdk = useCallback(() => {
     return new Promise((resolve) => {
       if (window.SrsRtcPublisherAsync && window.SrsRtcPlayerAsync) return resolve();
@@ -131,7 +126,26 @@ export default function StreamTogether() {
     });
   }, []);
 
-  // Canvas Drawing / Layout Engine
+  // Compute Live Streaming Dynamic Badge Headers
+  const liveStatusText = useMemo(() => {
+    const selectedDestinations = readStoredChannels();
+    if (selectedDestinations.length === 0) return "● LIVE";
+    
+    const platformNames = selectedDestinations.map(channel => {
+      if (channel.platform === "youtube") return "YouTube";
+      if (channel.platform === "twitch") return "Twitch";
+      if (channel.platform === "facebook") return "Facebook";
+      return channel.platform;
+    });
+
+    if (platformNames.length === 1) return `● LIVE ON ${platformNames[0].toUpperCase()}`;
+    if (platformNames.length === 2) return `● LIVE ON ${platformNames[0].toUpperCase()} AND ${platformNames[1].toUpperCase()}`;
+    
+    const last = platformNames.pop();
+    return `● LIVE ON ${platformNames.join(", ").toUpperCase()}, AND ${last.toUpperCase()}`;
+  }, [isLive, roomId]);
+
+  // Layout Canvas Engine Loop
   const startDrawing = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -144,7 +158,7 @@ export default function StreamTogether() {
       ctx.fillStyle = "#111";
       ctx.fillRect(0, 0, 1280, 720);
 
-      // Host Left Layout Frame
+      // Frame 1: Host Video
       if (videoHostRef.current?.readyState >= 2) {
         ctx.save();
         ctx.translate(640, 0);
@@ -159,7 +173,7 @@ export default function StreamTogether() {
         ctx.fillText("HOST", 34, 33);
       }
 
-      // Guest Right Layout Frame
+      // Frame 2: Guest Video Frame
       if (videoGuestRef.current?.readyState >= 2) {
         ctx.save();
         ctx.translate(1280, 0);
@@ -184,7 +198,7 @@ export default function StreamTogether() {
     frame();
   }, []);
 
-  // ============ HOST FUNCTIONS ============
+  // ============ HOST HANDLERS ============
   const startAsHost = async () => {
     setMode("host");
     try {
@@ -203,7 +217,7 @@ export default function StreamTogether() {
       setRoomId(id);
       setInviteLink(`${window.location.origin}/stream-together?room=${id}`);
     } catch (err) {
-      alert("Camera access denied. Please allow camera permissions.");
+      alert("Camera access denied.");
       setMode(null);
     }
   };
@@ -211,45 +225,37 @@ export default function StreamTogether() {
   const goLive = async () => {
     await loadSdk();
     
-    // 1. Build and constrain output stream matrix
     const mixedStream = canvasRef.current.captureStream(30);
     const canvasVideoTrack = mixedStream.getVideoTracks()[0];
     if (canvasVideoTrack) {
-      canvasVideoTrack.applyConstraints({
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }).catch(() => {});
+      canvasVideoTrack.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 } }).catch(() => {});
     }
 
-    // 2. Instantiate and load audio sources into the mixer
     audioMixerRef.current.initialize();
     if (hostStreamRef.current) {
       audioMixerRef.current.addSource("host", hostStreamRef.current);
     }
 
-    // 3. Inject mixed audio output tracks into canvas stream
     const mixedAudioStream = audioMixerRef.current.getMixedStream();
     if (mixedAudioStream && mixedAudioStream.getAudioTracks().length > 0) {
       mixedStream.addTrack(mixedAudioStream.getAudioTracks()[0]);
     }
 
-    // 4. Publish Streams to SRS Room Points
     const hostStreamKey = `${roomId}-host`;
     const compositedStreamKey = `${roomId}-composited`;
 
-    // Publish primary feed for layout components to grab
+    // Publish Streams via WebRTC to SRS
     const pubHost = new window.SrsRtcPublisherAsync();
     await pubHost.publish(`${SRS_RTC_BASE}/${hostStreamKey}`, hostStreamRef.current);
     publisherRef.current = pubHost;
 
-    // Publish raw composite stream target for backend/FFmpeg pulls
     const pubComposite = new window.SrsRtcPublisherAsync();
     await pubComposite.publish(`${SRS_RTC_BASE}/${compositedStreamKey}`, mixedStream);
     compositedPublisherRef.current = pubComposite;
 
     setIsLive(true);
 
-    // 5. Fire external streaming endpoints from storage configurations
+    // Call Target Platform Backend API Handlers
     const selectedDestinations = readStoredChannels();
     const savedTokens = JSON.parse(localStorage.getItem(CHANNEL_STORAGE_KEY) || "{}");
 
@@ -259,11 +265,7 @@ export default function StreamTogether() {
           await fetch(`${RAW_API_BASE}/api/twitch/live/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              channelId: roomId,
-              streamKey: savedTokens.twitchStreamKey,
-              compositedStreamKey,
-            }),
+            body: JSON.stringify({ channelId: roomId, streamKey: savedTokens.twitchStreamKey, compositedStreamKey }),
           });
         }
 
@@ -307,7 +309,7 @@ export default function StreamTogether() {
       }
     });
 
-    // 6. Monitor room loop to bring in guest streaming links
+    // Room Interception Polling Loop
     pollRef.current = setInterval(async () => {
       if (!window.SrsRtcPlayerAsync) return;
       try {
@@ -326,11 +328,9 @@ export default function StreamTogether() {
           playerRef.current = player;
           setGuestJoined(true);
           
-          // Connect guest mic stream into our mixer pipeline
           if (player.stream) {
             audioMixerRef.current.addSource("guest", player.stream);
           }
-          
           clearInterval(pollRef.current);
         };
       } catch (e) {}
@@ -348,7 +348,6 @@ export default function StreamTogether() {
     clearInterval(pollRef.current);
     cancelAnimationFrame(animRef.current);
     
-    // Terminate platform delivery tasks
     fetch(`${RAW_API_BASE}/api/twitch/live/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelId: roomId }) }).catch(() => {});
     fetch(`${RAW_API_BASE}/api/youtube/live/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelId: roomId }) }).catch(() => {});
     fetch(`${RAW_API_BASE}/api/facebook/live/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelId: roomId }) }).catch(() => {});
@@ -357,7 +356,7 @@ export default function StreamTogether() {
     compositedPublisherRef.current?.close();
     playerRef.current?.close();
     
-    hostStreamRef.current?.getTracks().forEach(t => t.stop());
+    if (hostStreamRef.current) hostStreamRef.current.getTracks().forEach(t => t.stop());
     audioMixerRef.current.destroy();
 
     setIsLive(false);
@@ -367,7 +366,7 @@ export default function StreamTogether() {
     setRoomId("");
   };
 
-  // ============ GUEST FUNCTIONS ============
+  // ============ GUEST HANDLERS ============
   const joinAsGuest = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -387,8 +386,7 @@ export default function StreamTogether() {
       publisherRef.current = pub;
       setGuestJoined(true);
     } catch (err) {
-      console.error(err);
-      alert("Failed to join. Check camera permissions.");
+      alert("Failed to connect camera permissions.");
     }
   };
 
@@ -407,10 +405,8 @@ export default function StreamTogether() {
     setRoomId("");
   };
 
-  // Global Mounting Cleanup
-// Global Mounting Cleanup
+  // Safe Memory Cleanup Closure Engine
   useEffect(() => {
-    // Capture mutable ref values to stable variables for safe cleanup scope closure
     const activeInterval = pollRef.current;
     const activeAnimation = animRef.current;
     const activePublisher = publisherRef.current;
@@ -428,13 +424,11 @@ export default function StreamTogether() {
       if (activePlayer) activePlayer.close();
       if (activeHostTracks) activeHostTracks.getTracks().forEach(t => t.stop());
       if (activeGuestTracks) activeGuestTracks.getTracks().forEach(t => t.stop());
-      
-      // Clean up the mixer safely using the captured closure variable
       if (currentMixer) currentMixer.destroy();
     };
   }, []);
 
-  // ============ CHOOSE MODE SCREEN ============
+  // ============ VIEW RENDERING ============
   if (mode === null) {
     return (
       <div style={styles.container}>
@@ -442,28 +436,19 @@ export default function StreamTogether() {
         <p style={styles.subtext}>Host a room or join as a guest</p>
         
         <div style={styles.buttonGroup}>
-          <button onClick={startAsHost} style={styles.primaryBtn}>
-            🎥 Start as Host
-          </button>
-          <div style={styles.divider}>
-            <span style={styles.dividerText}>OR</span>
-          </div>
+          <button onClick={startAsHost} style={styles.primaryBtn}>🎥 Start as Host</button>
+          <div style={styles.divider}><span style={styles.dividerText}>OR</span></div>
           <div style={styles.joinBox}>
             <input
               placeholder="Paste room link or ID"
               onChange={(e) => {
                 const val = e.target.value;
                 const match = val.match(/room=([^&]+)/);
-                if (match) setRoomId(match[1]);
-                else setRoomId(val);
+                setRoomId(match ? match[1] : val);
               }}
               style={styles.input}
             />
-            <button
-              onClick={() => roomId && setMode("guest")}
-              disabled={!roomId}
-              style={{ ...styles.secondaryBtn, opacity: roomId ? 1 : 0.5 }}
-            >
+            <button onClick={() => roomId && setMode("guest")} disabled={!roomId} style={{ ...styles.secondaryBtn, opacity: roomId ? 1 : 0.5 }}>
               Join as Guest
             </button>
           </div>
@@ -472,53 +457,58 @@ export default function StreamTogether() {
     );
   }
 
-  // ============ GUEST VIEW (BEFORE JOINING) ============
   if (mode === "guest" && !guestJoined) {
     return (
       <div style={styles.container}>
         <h2 style={styles.heading}>Join Stream</h2>
         <video ref={guestLocalVideoRef} autoPlay muted playsInline style={styles.video} />
-        <button onClick={joinAsGuest} style={styles.primaryBtn}>
-          Join & Share Camera
-        </button>
-        <button onClick={() => setMode(null)} style={styles.backBtn}>
-          &larr; Back
-        </button>
+        <button onClick={joinAsGuest} style={styles.primaryBtn}>Join & Share Camera</button>
+        <button onClick={() => setMode(null)} style={styles.backBtn}>&larr; Back</button>
       </div>
     );
   }
 
-  // ============ GUEST VIEW (LIVE) ============
   if (mode === "guest" && guestJoined) {
     return (
       <div style={styles.container}>
         <h2 style={styles.heading}>&#x2705; You're Live!</h2>
         <p style={{ color: "#0f0" }}>The host can see you now.</p>
         <video ref={guestLocalVideoRef} autoPlay muted playsInline style={styles.video} />
-        <button onClick={stopGuest} style={styles.dangerBtn}>
-          Leave Stream
-        </button>
+        <button onClick={stopGuest} style={styles.dangerBtn}>Leave Stream</button>
       </div>
     );
   }
 
-  // ============ HOST VIEW ============
+  // ============ HOST DASHBOARD PANELS ============
+  const activeDestinations = readStoredChannels();
+
   return (
     <div style={styles.container}>
       <h2 style={styles.heading}>Host Stream</h2>
 
       <canvas ref={canvasRef} style={styles.canvas} />
-      {isLive && <p style={styles.liveBadge}>● LIVE</p>}
+      
+      {isLive && <p style={styles.liveBadge}>{liveStatusText}</p>}
+
+      <div style={styles.platformBadgeContainer}>
+        {activeDestinations.map((channel) => (
+          <span key={channel.id} style={{
+            ...styles.platformBadge,
+            backgroundColor: channel.platform === "twitch" ? "#6441a5" : channel.platform === "youtube" ? "#ff0000" : "#3b5998"
+          }}>
+            {channel.platform === "twitch" && "🎮 "}
+            {channel.platform === "youtube" && "📺 "}
+            {channel.platform === "facebook" && "👥 "}
+            {channel.name || channel.platform}
+          </span>
+        ))}
+      </div>
 
       <div style={styles.controls}>
         {!isLive ? (
-          <button onClick={goLive} style={styles.primaryBtn}>
-            Go Live
-          </button>
+          <button onClick={goLive} style={styles.primaryBtn}>Go Live</button>
         ) : (
-          <button onClick={stopHost} style={styles.dangerBtn}>
-            Stop Stream
-          </button>
+          <button onClick={stopHost} style={styles.dangerBtn}>Stop Stream</button>
         )}
       </div>
 
@@ -527,9 +517,7 @@ export default function StreamTogether() {
           <h3>📋 Invite Guest</h3>
           <div style={styles.copyRow}>
             <input value={inviteLink} readOnly onClick={e => e.target.select()} style={styles.input} />
-            <button onClick={copyLink} style={styles.copyBtn}>
-              {copied ? "✓" : "Copy"}
-            </button>
+            <button onClick={copyLink} style={styles.copyBtn}>{copied ? "✓" : "Copy"}</button>
           </div>
           <p style={{ color: guestJoined ? "#0f0" : "#888", marginTop: 12 }}>
             {guestJoined ? "✅ Guest connected" : "⏳ Waiting for guest..."}
@@ -542,7 +530,10 @@ export default function StreamTogether() {
   );
 }
 
-// ============ INLINE COMPONENT STYLES ============
+
+// =========================
+// UI DESCRIPTIONS LAYOUT
+// =========================
 const styles = {
   container: { maxWidth: 700, margin: "0 auto", padding: 24, fontFamily: "sans-serif", textAlign: "center", color: "#fff", background: "#0a0a0a", minHeight: "100vh" },
   heading: { fontSize: 28, marginBottom: 8 },
@@ -558,9 +549,11 @@ const styles = {
   input: { flex: 1, padding: "10px 14px", background: "#1a1a1a", color: "#fff", border: "1px solid #444", borderRadius: 6, fontSize: 14 },
   video: { width: "100%", maxWidth: 400, borderRadius: 10, background: "#111", margin: "20px auto", display: "block" },
   canvas: { width: "100%", borderRadius: 10, background: "#111", border: "1px solid #333" },
-  liveBadge: { color: "#0f0", fontWeight: "bold", marginTop: 8 },
+  liveBadge: { color: "#0f0", fontWeight: "bold", marginTop: 12, fontSize: 15 },
   controls: { marginTop: 20 },
   inviteBox: { marginTop: 24, padding: 20, background: "#1a1a1a", borderRadius: 10, textAlign: "left" },
   copyRow: { display: "flex", gap: 8, marginTop: 12 },
-  copyBtn: { padding: "10px 20px", cursor: "pointer", backgroundColor: "#444", color: "#fff", border: "none", borderRadius: 6, fontWeight: "bold" }
+  copyBtn: { padding: "10px 20px", cursor: "pointer", backgroundColor: "#444", color: "#fff", border: "none", borderRadius: 6, fontWeight: "bold" },
+  platformBadgeContainer: { display: "flex", justifyContent: "center", gap: 8, marginTop: 12, flexWrap: "wrap" },
+  platformBadge: { padding: "6px 12px", borderRadius: 16, fontSize: 12, fontWeight: "bold", color: "#fff", textTransform: "capitalize", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }
 };
