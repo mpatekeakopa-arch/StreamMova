@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import "./Dashboard.css";
 import { getInitials } from "./utils/helpers";
 import { availablePlatforms } from "./utils/constants";
@@ -154,6 +154,70 @@ function Dashboard() {
     (page) => page.id === selectedFacebookPageId
   );
 
+  // Notification permission and schedule notification
+  const requestNotificationPermission = async () => {
+    if (!("Notification" in window)) return false;
+    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "denied") return false;
+
+    const result = await Notification.requestPermission();
+    return result === "granted";
+  };
+
+  const showScheduleNotification = async (streamTitle) => {
+    const allowed = await requestNotificationPermission();
+
+    if (allowed) {
+      new Notification("StreamMova - Stream Reminder", {
+        body: streamTitle
+          ? `Time to start streaming: ${streamTitle}`
+          : "It's time to start your scheduled stream!",
+        icon: "/favicon.ico",
+        tag: "stream-reminder",
+      });
+    } else {
+      alert(streamTitle ? `Time to start: ${streamTitle}` : "It's time to start streaming!");
+    }
+  };
+
+  const checkAndSetReminder = useCallback((targetDate) => {
+    const now = Date.now();
+    const targetMs = targetDate.getTime();
+
+    if (targetMs <= now) {
+      setScheduleStatus({
+        active: false,
+        message: "Selected time has already passed.",
+        startAtMs: null,
+      });
+      return;
+    }
+
+    // Clear existing timeout
+    if (scheduleTimeoutRef.current) {
+      clearTimeout(scheduleTimeoutRef.current);
+    }
+
+    const timeUntilStream = targetMs - now;
+    
+    scheduleTimeoutRef.current = setTimeout(async () => {
+      await showScheduleNotification(scheduleForm.title);
+      setScheduleStatus({
+        active: false,
+        message: "Time to stream! Click Start Multistream to go live.",
+        startAtMs: null,
+      });
+      setNextStreamDate(null);
+      scheduleTimeoutRef.current = null;
+    }, timeUntilStream);
+
+    setScheduleStatus({
+      active: true,
+      message: `Reminder set for ${targetDate.toLocaleString()}`,
+      startAtMs: targetMs,
+    });
+  }, [scheduleForm.title]);
+
   // Load saved channels and schedule from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("streammova_connected_channels");
@@ -183,7 +247,9 @@ function Dashboard() {
         
         // Load schedule if exists
         if (data.nextStreamDate) {
-          setNextStreamDate(new Date(data.nextStreamDate));
+          const savedDate = new Date(data.nextStreamDate);
+          setNextStreamDate(savedDate);
+          checkAndSetReminder(savedDate);
         }
       } catch (err) {
         console.error("Failed to load saved channels:", err);
@@ -197,14 +263,15 @@ function Dashboard() {
         const scheduleData = JSON.parse(savedSchedule);
         setScheduleForm(scheduleData.scheduleForm || { title: "", date: "", time: "" });
         if (scheduleData.nextStreamDate) {
-          setNextStreamDate(new Date(scheduleData.nextStreamDate));
-          checkAndSetReminder(new Date(scheduleData.nextStreamDate));
+          const savedDate = new Date(scheduleData.nextStreamDate);
+          setNextStreamDate(savedDate);
+          checkAndSetReminder(savedDate);
         }
       } catch (err) {
         console.error("Failed to load schedule:", err);
       }
     }
-  }, []);
+  }, [checkAndSetReminder]);
 
   // Save channels to localStorage whenever they change
   useEffect(() => {
@@ -948,73 +1015,10 @@ function Dashboard() {
     link.remove();
   };
 
-  const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) return false;
-    if (Notification.permission === "granted") return true;
-    if (Notification.permission === "denied") return false;
-
-    const result = await Notification.requestPermission();
-    return result === "granted";
-  };
-
-  const showScheduleNotification = async (title) => {
-    const allowed = await requestNotificationPermission();
-
-    if (allowed) {
-      new Notification("StreamMova - Stream Reminder", {
-        body: title
-          ? `Time to start streaming: ${title}`
-          : "It's time to start your scheduled stream!",
-        icon: "/favicon.ico",
-        tag: "stream-reminder",
-      });
-    } else {
-      alert(title ? `Time to start: ${title}` : "It's time to start streaming!");
-    }
-  };
-
-  const checkAndSetReminder = (targetDate) => {
-    const now = Date.now();
-    const targetMs = targetDate.getTime();
-
-    if (targetMs <= now) {
-      setScheduleStatus({
-        active: false,
-        message: "Selected time has already passed.",
-        startAtMs: null,
-      });
-      return;
-    }
-
-    // Clear existing timeout
-    if (scheduleTimeoutRef.current) {
-      clearTimeout(scheduleTimeoutRef.current);
-    }
-
-    const timeUntilStream = targetMs - now;
-    
-    scheduleTimeoutRef.current = setTimeout(async () => {
-      await showScheduleNotification(scheduleForm.title);
-      setScheduleStatus({
-        active: false,
-        message: "Time to stream! Click Start Multistream to go live.",
-        startAtMs: null,
-      });
-      setNextStreamDate(null);
-      scheduleTimeoutRef.current = null;
-    }, timeUntilStream);
-
-    setScheduleStatus({
-      active: true,
-      message: `Reminder set for ${targetDate.toLocaleString()}`,
-      startAtMs: targetMs,
-    });
-  };
-
   const scheduleSession = async () => {
     setError("");
 
-    const { title, date, time } = scheduleForm;
+    const { date, time } = scheduleForm;
 
     if (!date || !time) {
       setError("Please select both a date and time for the reminder.");
