@@ -106,6 +106,7 @@ function Dashboard() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const modalRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
 
   // Refs to hold the latest values for cleanup (avoids dependency issues)
   const cameraStreamRef = useRef(cameraStream);
@@ -221,6 +222,119 @@ function Dashboard() {
     selectedFacebookPageId,
     facebookConnectStatus,
   ]);
+
+  // Check for active streams on mount - restore streaming state
+  useEffect(() => {
+    const checkActiveStreams = async () => {
+      if (!channelId || channelId === 'test') return;
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/stream/status/${channelId}`);
+        const data = await response.json();
+        
+        if (data.success && data.isStreaming) {
+          if (data.facebook?.active) {
+            setFacebookLiveActive(true);
+            setIsStreaming(true);
+            dashboardRuntime.facebookLiveActive = true;
+            dashboardRuntime.isStreaming = true;
+            setLiveStatus(`Facebook Live active (since ${new Date(data.facebook.startedAt).toLocaleTimeString()})`);
+          }
+          
+          if (data.twitch?.active) {
+            setTwitchLiveActive(true);
+            setIsStreaming(true);
+            dashboardRuntime.twitchLiveActive = true;
+            dashboardRuntime.isStreaming = true;
+            setLiveStatus(prev => 
+              prev ? `${prev} | Twitch Live active` : `Twitch Live active (since ${new Date(data.twitch.startedAt).toLocaleTimeString()})`
+            );
+          }
+          
+          if (data.youtube?.active) {
+            setYoutubeLiveActive(true);
+            setIsStreaming(true);
+            dashboardRuntime.youtubeLiveActive = true;
+            dashboardRuntime.isStreaming = true;
+            setLiveStatus(prev => 
+              prev ? `${prev} | YouTube Live active` : `YouTube Live active (since ${new Date(data.youtube.startedAt).toLocaleTimeString()})`
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check active streams:', err);
+      }
+    };
+
+    checkActiveStreams();
+  }, [channelId]);
+
+  // Heartbeat to monitor active streams
+  useEffect(() => {
+    if (isStreaming && (facebookLiveActive || twitchLiveActive || youtubeLiveActive)) {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+      
+      heartbeatIntervalRef.current = setInterval(async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/stream/heartbeat/${channelId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              facebook: facebookLiveActive,
+              twitch: twitchLiveActive,
+              youtube: youtubeLiveActive
+            })
+          });
+          
+          const data = await response.json();
+          
+          if (data.facebook?.stopped && facebookLiveActive) {
+            setFacebookLiveActive(false);
+            dashboardRuntime.facebookLiveActive = false;
+            setLiveStatus('Facebook stream stopped unexpectedly');
+          }
+          
+          if (data.twitch?.stopped && twitchLiveActive) {
+            setTwitchLiveActive(false);
+            dashboardRuntime.twitchLiveActive = false;
+            setLiveStatus('Twitch stream stopped unexpectedly');
+          }
+          
+          if (data.youtube?.stopped && youtubeLiveActive) {
+            setYoutubeLiveActive(false);
+            dashboardRuntime.youtubeLiveActive = false;
+            setLiveStatus('YouTube stream stopped unexpectedly');
+          }
+          
+          const stillStreaming = 
+            (facebookLiveActive && !data.facebook?.stopped) ||
+            (twitchLiveActive && !data.twitch?.stopped) ||
+            (youtubeLiveActive && !data.youtube?.stopped);
+          
+          if (!stillStreaming && !data.facebook?.stopped && !data.twitch?.stopped && !data.youtube?.stopped) {
+            setIsStreaming(false);
+            dashboardRuntime.isStreaming = false;
+          }
+        } catch (err) {
+          console.error('Heartbeat check failed:', err);
+        }
+      }, 15000);
+      
+      return () => {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+      };
+    } else {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+    }
+  }, [isStreaming, facebookLiveActive, twitchLiveActive, youtubeLiveActive, channelId]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
   const handleNavClick = (navItem) => setActiveNav(navItem);
@@ -458,7 +572,7 @@ function Dashboard() {
     dashboardRuntime.isCameraOn = false;
   };
 
-  const startFacebookLive = async (compositedKey = null) => {
+  const startFacebookLive = async () => {
     if (!selectedFacebookPage?.id || !selectedFacebookPage?.access_token) {
       return null;
     }
@@ -476,7 +590,6 @@ function Dashboard() {
         description: "Live from StreamMova",
         pageId: selectedFacebookPage.id,
         pageAccessToken: selectedFacebookPage.access_token,
-        compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
       }),
     });
 
@@ -487,6 +600,7 @@ function Dashboard() {
     }
 
     setFacebookLiveActive(true);
+    dashboardRuntime.facebookLiveActive = true;
     setLiveStatus(`Facebook Live started. Video ID: ${data.liveVideoId}`);
 
     return data;
@@ -512,12 +626,13 @@ function Dashboard() {
     }
 
     setFacebookLiveActive(false);
+    dashboardRuntime.facebookLiveActive = false;
     setLiveStatus("Facebook Live stopped.");
 
     return data;
   };
 
-  const startTwitchLive = async (compositedKey = null) => {
+  const startTwitchLive = async () => {
     if (!twitchConnected || !twitchStreamKey) return null;
 
     setLiveStatus("Starting Twitch Live…");
@@ -530,7 +645,6 @@ function Dashboard() {
       body: JSON.stringify({
         channelId,
         streamKey: twitchStreamKey,
-        compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
       }),
     });
 
@@ -541,6 +655,7 @@ function Dashboard() {
     }
 
     setTwitchLiveActive(true);
+    dashboardRuntime.twitchLiveActive = true;
     setLiveStatus(`Twitch Live started. Container: ${data.containerName}`);
 
     return data;
@@ -566,82 +681,86 @@ function Dashboard() {
     }
 
     setTwitchLiveActive(false);
+    dashboardRuntime.twitchLiveActive = false;
     setLiveStatus("Twitch Live stopped.");
 
     return data;
   };
 
-  const startYouTubeLive = async (compositedKey = null) => {
-    if (!youtubeConnected || !youtubeAccessToken) return null;
+// Update startYouTubeLive in Dashboard.js to handle token refresh
+const startYouTubeLive = async () => {
+  if (!youtubeConnected || !youtubeAccessToken) return null;
 
-    setLiveStatus("Starting YouTube Live…");
+  setLiveStatus("Starting YouTube Live…");
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channelId,
+        accessToken: youtubeAccessToken,
+        refreshToken: youtubeRefreshToken,
+        title: "StreamMova Live",
+        description: "Live from StreamMova",
+      }),
+    });
+
+    const data = await response.json();
+
+    // Handle token refresh
+    if (response.status === 401 && data.newAccessToken) {
+      // Update the access token
+      setYoutubeAccessToken(data.newAccessToken);
+      
+      // Retry with new token
+      const retryResponse = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           channelId,
-          accessToken: youtubeAccessToken,
+          accessToken: data.newAccessToken,
           refreshToken: youtubeRefreshToken,
           title: "StreamMova Live",
           description: "Live from StreamMova",
-          compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
         }),
       });
 
-      const data = await response.json();
+      const retryData = await retryResponse.json();
 
-      // Handle token refresh safely
-      if (response.status === 401 && data.newAccessToken) {
-        setYoutubeAccessToken(data.newAccessToken);
-        
-        const retryResponse = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            channelId,
-            accessToken: data.newAccessToken,
-            refreshToken: youtubeRefreshToken,
-            title: "StreamMova Live",
-            description: "Live from StreamMova",
-            compositedStreamKey: compositedKey
-          }),
-        });
-
-        const retryData = await retryResponse.json();
-
-        if (!retryResponse.ok || !retryData.success) {
-          throw new Error(retryData.error || retryData.message || "Failed to start YouTube Live");
-        }
-
-        setYoutubeLiveActive(true);
-        setYoutubeStreamKey(retryData.streamKey || "");
-        setYoutubeRtmpUrl(retryData.rtmpUrl || "");
-        setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
-
-        return retryData;
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || "Failed to start YouTube Live");
+      if (!retryResponse.ok || !retryData.success) {
+        throw new Error(retryData.error || retryData.message || "Failed to start YouTube Live");
       }
 
       setYoutubeLiveActive(true);
-      setYoutubeStreamKey(data.streamKey || "");
-      setYoutubeRtmpUrl(data.rtmpUrl || "");
-      setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
+      dashboardRuntime.youtubeLiveActive = true;
+      setYoutubeStreamKey(retryData.streamKey || "");
+      setYoutubeRtmpUrl(retryData.rtmpUrl || "");
+      setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
 
-      return data;
-    } catch (error) {
-      console.error("startYouTubeLive error:", error);
-      throw error;
+      return retryData;
     }
-  };
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to start YouTube Live");
+    }
+
+    setYoutubeLiveActive(true);
+    dashboardRuntime.youtubeLiveActive = true;
+    setYoutubeStreamKey(data.streamKey || "");
+    setYoutubeRtmpUrl(data.rtmpUrl || "");
+    setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
+
+    return data;
+  } catch (error) {
+    console.error("startYouTubeLive error:", error);
+    throw error;
+  }
+};
 
   const stopYouTubeLive = async () => {
     if (!youtubeLiveActive) return null;
@@ -663,6 +782,7 @@ function Dashboard() {
     }
 
     setYoutubeLiveActive(false);
+    dashboardRuntime.youtubeLiveActive = false;
     setLiveStatus("YouTube Live stopped.");
 
     return data;
@@ -688,10 +808,14 @@ function Dashboard() {
       setFacebookLiveActive(false);
       setTwitchLiveActive(false);
       setYoutubeLiveActive(false);
+      dashboardRuntime.isStreaming = false;
+      dashboardRuntime.facebookLiveActive = false;
+      dashboardRuntime.twitchLiveActive = false;
+      dashboardRuntime.youtubeLiveActive = false;
     }
   };
 
-  const handleStreamToggle = async (explicitCompositedKey = null) => {
+  const handleStreamToggle = async () => {
     try {
       setError("");
 
@@ -699,7 +823,9 @@ function Dashboard() {
         const stream = await openCamera();
         if (!stream) return;
 
-        const hasFacebook = Boolean(selectedFacebookPage?.id && selectedFacebookPage?.access_token);
+        const hasFacebook = Boolean(
+          selectedFacebookPage?.id && selectedFacebookPage?.access_token
+        );
         const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
         const hasYouTube = Boolean(youtubeConnected && youtubeAccessToken);
 
@@ -709,10 +835,9 @@ function Dashboard() {
 
         const startTasks = [];
 
-        // Pass the explicit composited key argument down to each platform endpoint
-        if (hasFacebook) startTasks.push(startFacebookLive(explicitCompositedKey));
-        if (hasTwitch) startTasks.push(startTwitchLive(explicitCompositedKey));
-        if (hasYouTube) startTasks.push(startYouTubeLive(explicitCompositedKey));
+        if (hasFacebook) startTasks.push(startFacebookLive());
+        if (hasTwitch) startTasks.push(startTwitchLive());
+        if (hasYouTube) startTasks.push(startYouTubeLive());
 
         const results = await Promise.allSettled(startTasks);
         const failed = results.find((result) => result.status === "rejected");
@@ -722,6 +847,7 @@ function Dashboard() {
         }
 
         setIsStreaming(true);
+        dashboardRuntime.isStreaming = true;
 
         const livePlatforms = [];
         if (hasFacebook) livePlatforms.push("Facebook");
@@ -736,6 +862,7 @@ function Dashboard() {
       console.error("stream toggle failed:", err);
       setError(err.message || "Failed to start or stop stream.");
       setIsStreaming(false);
+      dashboardRuntime.isStreaming = false;
     }
   };
 
@@ -1134,9 +1261,19 @@ function Dashboard() {
   }, [twitchLiveActive, facebookLiveActive, youtubeLiveActive]);
 
   // Keep live media running while users move around the app.
+  // Cleanup on unmount – only clean local resources, NOT backend streams
   useEffect(() => {
     return () => {
+      // Clear heartbeat interval
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      
       streamRef.current = dashboardRuntime.cameraStream;
+      
+      // NOTE: We do NOT stop camera tracks on unmount to keep stream alive
+      // while user navigates between pages. Backend streams persist independently.
     };
   }, []);
 
