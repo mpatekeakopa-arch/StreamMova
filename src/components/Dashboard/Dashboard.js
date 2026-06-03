@@ -458,7 +458,7 @@ function Dashboard() {
     dashboardRuntime.isCameraOn = false;
   };
 
-  const startFacebookLive = async () => {
+  const startFacebookLive = async (compositedKey = null) => {
     if (!selectedFacebookPage?.id || !selectedFacebookPage?.access_token) {
       return null;
     }
@@ -476,6 +476,7 @@ function Dashboard() {
         description: "Live from StreamMova",
         pageId: selectedFacebookPage.id,
         pageAccessToken: selectedFacebookPage.access_token,
+        compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
       }),
     });
 
@@ -516,7 +517,7 @@ function Dashboard() {
     return data;
   };
 
-  const startTwitchLive = async () => {
+  const startTwitchLive = async (compositedKey = null) => {
     if (!twitchConnected || !twitchStreamKey) return null;
 
     setLiveStatus("Starting Twitch Live…");
@@ -529,6 +530,7 @@ function Dashboard() {
       body: JSON.stringify({
         channelId,
         streamKey: twitchStreamKey,
+        compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
       }),
     });
 
@@ -569,78 +571,77 @@ function Dashboard() {
     return data;
   };
 
-// Update startYouTubeLive in Dashboard.js to handle token refresh
-const startYouTubeLive = async () => {
-  if (!youtubeConnected || !youtubeAccessToken) return null;
+  const startYouTubeLive = async (compositedKey = null) => {
+    if (!youtubeConnected || !youtubeAccessToken) return null;
 
-  setLiveStatus("Starting YouTube Live…");
+    setLiveStatus("Starting YouTube Live…");
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        channelId,
-        accessToken: youtubeAccessToken,
-        refreshToken: youtubeRefreshToken,
-        title: "StreamMova Live",
-        description: "Live from StreamMova",
-      }),
-    });
-
-    const data = await response.json();
-
-    // Handle token refresh
-    if (response.status === 401 && data.newAccessToken) {
-      // Update the access token
-      setYoutubeAccessToken(data.newAccessToken);
-      
-      // Retry with new token
-      const retryResponse = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           channelId,
-          accessToken: data.newAccessToken,
+          accessToken: youtubeAccessToken,
           refreshToken: youtubeRefreshToken,
           title: "StreamMova Live",
           description: "Live from StreamMova",
+          compositedStreamKey: compositedKey // Added to hook into your mixed stream routing
         }),
       });
 
-      const retryData = await retryResponse.json();
+      const data = await response.json();
 
-      if (!retryResponse.ok || !retryData.success) {
-        throw new Error(retryData.error || retryData.message || "Failed to start YouTube Live");
+      // Handle token refresh safely
+      if (response.status === 401 && data.newAccessToken) {
+        setYoutubeAccessToken(data.newAccessToken);
+        
+        const retryResponse = await fetch(`${API_BASE_URL}/api/youtube/live/start`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            channelId,
+            accessToken: data.newAccessToken,
+            refreshToken: youtubeRefreshToken,
+            title: "StreamMova Live",
+            description: "Live from StreamMova",
+            compositedStreamKey: compositedKey
+          }),
+        });
+
+        const retryData = await retryResponse.json();
+
+        if (!retryResponse.ok || !retryData.success) {
+          throw new Error(retryData.error || retryData.message || "Failed to start YouTube Live");
+        }
+
+        setYoutubeLiveActive(true);
+        setYoutubeStreamKey(retryData.streamKey || "");
+        setYoutubeRtmpUrl(retryData.rtmpUrl || "");
+        setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
+
+        return retryData;
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Failed to start YouTube Live");
       }
 
       setYoutubeLiveActive(true);
-      setYoutubeStreamKey(retryData.streamKey || "");
-      setYoutubeRtmpUrl(retryData.rtmpUrl || "");
-      setLiveStatus(`YouTube Live started. Broadcast ID: ${retryData.broadcastId}`);
+      setYoutubeStreamKey(data.streamKey || "");
+      setYoutubeRtmpUrl(data.rtmpUrl || "");
+      setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
 
-      return retryData;
+      return data;
+    } catch (error) {
+      console.error("startYouTubeLive error:", error);
+      throw error;
     }
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || data.message || "Failed to start YouTube Live");
-    }
-
-    setYoutubeLiveActive(true);
-    setYoutubeStreamKey(data.streamKey || "");
-    setYoutubeRtmpUrl(data.rtmpUrl || "");
-    setLiveStatus(`YouTube Live started. Broadcast ID: ${data.broadcastId}`);
-
-    return data;
-  } catch (error) {
-    console.error("startYouTubeLive error:", error);
-    throw error;
-  }
-};
+  };
 
   const stopYouTubeLive = async () => {
     if (!youtubeLiveActive) return null;
@@ -690,7 +691,7 @@ const startYouTubeLive = async () => {
     }
   };
 
-  const handleStreamToggle = async () => {
+  const handleStreamToggle = async (explicitCompositedKey = null) => {
     try {
       setError("");
 
@@ -698,9 +699,7 @@ const startYouTubeLive = async () => {
         const stream = await openCamera();
         if (!stream) return;
 
-        const hasFacebook = Boolean(
-          selectedFacebookPage?.id && selectedFacebookPage?.access_token
-        );
+        const hasFacebook = Boolean(selectedFacebookPage?.id && selectedFacebookPage?.access_token);
         const hasTwitch = Boolean(twitchConnected && twitchStreamKey);
         const hasYouTube = Boolean(youtubeConnected && youtubeAccessToken);
 
@@ -710,9 +709,10 @@ const startYouTubeLive = async () => {
 
         const startTasks = [];
 
-        if (hasFacebook) startTasks.push(startFacebookLive());
-        if (hasTwitch) startTasks.push(startTwitchLive());
-        if (hasYouTube) startTasks.push(startYouTubeLive());
+        // Pass the explicit composited key argument down to each platform endpoint
+        if (hasFacebook) startTasks.push(startFacebookLive(explicitCompositedKey));
+        if (hasTwitch) startTasks.push(startTwitchLive(explicitCompositedKey));
+        if (hasYouTube) startTasks.push(startYouTubeLive(explicitCompositedKey));
 
         const results = await Promise.allSettled(startTasks);
         const failed = results.find((result) => result.status === "rejected");
