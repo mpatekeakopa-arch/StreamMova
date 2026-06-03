@@ -408,16 +408,29 @@ export default function StreamTogether() {
   };
 
   // Global Mounting Cleanup
+// Global Mounting Cleanup
   useEffect(() => {
+    // Capture mutable ref values to stable variables for safe cleanup scope closure
+    const activeInterval = pollRef.current;
+    const activeAnimation = animRef.current;
+    const activePublisher = publisherRef.current;
+    const activeCompositedPublisher = compositedPublisherRef.current;
+    const activePlayer = playerRef.current;
+    const activeHostTracks = hostStreamRef.current;
+    const activeGuestTracks = guestStreamRef.current;
+    const currentMixer = audioMixerRef.current;
+
     return () => {
-      clearInterval(pollRef.current);
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      if (publisherRef.current) publisherRef.current.close();
-      if (compositedPublisherRef.current) compositedPublisherRef.current.close();
-      if (playerRef.current) playerRef.current.close();
-      if (hostStreamRef.current) hostStreamRef.current.getTracks().forEach(t => t.stop());
-      if (guestStreamRef.current) guestStreamRef.current.getTracks().forEach(t => t.stop());
-      audioMixerRef.current.destroy();
+      clearInterval(activeInterval);
+      if (activeAnimation) cancelAnimationFrame(activeAnimation);
+      if (activePublisher) activePublisher.close();
+      if (activeCompositedPublisher) activeCompositedPublisher.close();
+      if (activePlayer) activePlayer.close();
+      if (activeHostTracks) activeHostTracks.getTracks().forEach(t => t.stop());
+      if (activeGuestTracks) activeGuestTracks.getTracks().forEach(t => t.stop());
+      
+      // Clean up the mixer safely using the captured closure variable
+      if (currentMixer) currentMixer.destroy();
     };
   }, []);
 
