@@ -126,8 +126,12 @@ export default function StreamTogether() {
     });
   }, []);
 
-  // Compute Live Streaming Dynamic Badge Headers
+
+// Compute Live Streaming Dynamic Badge Headers
   const liveStatusText = useMemo(() => {
+    // If we aren't live, don't waste cycles parsing layout strings
+    if (!isLive) return "● LIVE";
+
     const selectedDestinations = readStoredChannels();
     if (selectedDestinations.length === 0) return "● LIVE";
     
@@ -143,7 +147,7 @@ export default function StreamTogether() {
     
     const last = platformNames.pop();
     return `● LIVE ON ${platformNames.join(", ").toUpperCase()}, AND ${last.toUpperCase()}`;
-  }, [isLive, roomId]);
+  }, [isLive]); // roomId removed, isLive explicitly used as a condition guard
 
   // Layout Canvas Engine Loop
   const startDrawing = useCallback(() => {
@@ -482,7 +486,7 @@ export default function StreamTogether() {
   // ============ HOST DASHBOARD PANELS ============
   const activeDestinations = readStoredChannels();
 
-  
+
   return (
     <div style={styles.container}>
       <h2 style={styles.heading}>Host Stream</h2>
