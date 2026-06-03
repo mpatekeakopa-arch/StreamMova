@@ -482,6 +482,7 @@ export default function StreamTogether() {
   // ============ HOST DASHBOARD PANELS ============
   const activeDestinations = readStoredChannels();
 
+  
   return (
     <div style={styles.container}>
       <h2 style={styles.heading}>Host Stream</h2>
@@ -529,7 +530,6 @@ export default function StreamTogether() {
     </div>
   );
 }
-
 
 // =========================
 // UI DESCRIPTIONS LAYOUT
