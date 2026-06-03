@@ -19,8 +19,8 @@ export default function StreamTogether() {
   const playerRef = useRef(null);
   const animationRef = useRef(null);
 
-  // 2. Mix User 1 and User 2 Side-by-Side on the canvas
-  const startCanvasComposition = () => {
+  // 1. Mix User 1 and User 2 Side-by-Side on the canvas (Wrapped to satisfy ESLint)
+  const startCanvasComposition = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -45,9 +45,9 @@ export default function StreamTogether() {
       animationRef.current = requestAnimationFrame(draw);
     };
     draw();
-  };
+  }, [hasUser2]); // Tracks hasUser2 changes to redraw correctly
 
-  // 1. Fire up User 1's Camera & start compositing canvas loop (Clean Hook Method)
+  // 2. Fire up User 1's Camera & start compositing canvas loop
   const startPreview = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -60,7 +60,7 @@ export default function StreamTogether() {
     } catch (err) {
       console.error("Error accessing media devices:", err);
     }
-  }, []); 
+  }, [startCanvasComposition]); // Added dependency here to make CI happy!
 
   // 3. User 2 simulates arriving via this manual action link
   const simulateUser2Join = async () => {
@@ -106,7 +106,7 @@ export default function StreamTogether() {
       if (publisherRef.current) publisherRef.current.close();
       if (playerRef.current) playerRef.current.close();
     };
-  }, [startPreview]); // Clean dependency tracking for strict CI linters
+  }, [startPreview]); 
 
   return (
     <div style={{ padding: "20px", fontFamily: "sans-serif", textAlign: "center" }}>
