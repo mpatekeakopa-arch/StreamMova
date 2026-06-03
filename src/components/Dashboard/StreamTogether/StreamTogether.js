@@ -24,6 +24,10 @@ export default function StreamTogether() {
   const playerRef = useRef(null);
   const pollRef = useRef(null);
   const animRef = useRef(null);
+  
+  // Audio Mixing Contexts for Host
+  const audioContextRef = useRef(null);
+  const audioDestinationRef = useRef(null);
 
   // Check URL for guest invite on mount
   useEffect(() => {
@@ -116,9 +120,35 @@ export default function StreamTogether() {
   const goLive = async () => {
     await loadSdk();
     
+    // 1. Force the canvas capture stream to maintain explicit 720p resolution rules
     const mixed = canvasRef.current.captureStream(30);
-    const audioTrack = hostStreamRef.current?.getAudioTracks()[0];
-    if (audioTrack) mixed.addTrack(audioTrack);
+    const canvasVideoTrack = mixed.getVideoTracks()[0];
+    if (canvasVideoTrack) {
+      canvasVideoTrack.applyConstraints({
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }).catch(e => console.warn("Canvas constraint layout failed:", e));
+    }
+
+    // 2. Setup Audio Mixer Node Pipeline
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const audioContext = new AudioContextClass();
+    audioContextRef.current = audioContext;
+    
+    const destNode = audioContext.createMediaStreamDestination();
+    audioDestinationRef.current = destNode;
+
+    // Attach host mic track if present
+    if (hostStreamRef.current && hostStreamRef.current.getAudioTracks().length > 0) {
+      const hostSource = audioContext.createMediaStreamSource(new MediaStream([hostStreamRef.current.getAudioTracks()[0]]));
+      hostSource.connect(destNode);
+    }
+
+    // Combine Web Audio output track into the outbound stream canvas
+    const mixedAudioTracks = destNode.stream.getAudioTracks();
+    if (mixedAudioTracks.length > 0) {
+      mixed.addTrack(mixedAudioTracks[0]);
+    }
 
     const pub = new window.SrsRtcPublisherAsync();
     await pub.publish(`${SRS_RTC_BASE}/${roomId}`, mixed);
@@ -143,6 +173,13 @@ export default function StreamTogether() {
           videoGuestRef.current = vid;
           playerRef.current = player;
           setGuestJoined(true);
+          
+          // 3. Dynamically inject the newly connected guest audio track into the master composite mix
+          if (player.stream && player.stream.getAudioTracks().length > 0 && audioContextRef.current && audioDestinationRef.current) {
+            const guestSource = audioContextRef.current.createMediaStreamSource(new MediaStream([player.stream.getAudioTracks()[0]]));
+            guestSource.connect(audioDestinationRef.current);
+          }
+          
           clearInterval(pollRef.current);
         };
       } catch (e) {}
@@ -162,6 +199,7 @@ export default function StreamTogether() {
     publisherRef.current?.close();
     playerRef.current?.close();
     hostStreamRef.current?.getTracks().forEach(t => t.stop());
+    if (audioContextRef.current) audioContextRef.current.close();
     setIsLive(false);
     setGuestJoined(false);
     setMode(null);
@@ -178,7 +216,6 @@ export default function StreamTogether() {
       });
       guestStreamRef.current = stream;
 
-      // Assign to dedicated local guest ref element
       if (guestLocalVideoRef.current) {
         guestLocalVideoRef.current.srcObject = stream;
         guestLocalVideoRef.current.play().catch(e => console.error(e));
@@ -195,7 +232,6 @@ export default function StreamTogether() {
     }
   };
 
-  // Hook to catch when guest screen transitions state to re-attach track output
   useEffect(() => {
     if (mode === "guest" && guestJoined && guestStreamRef.current && guestLocalVideoRef.current) {
       guestLocalVideoRef.current.srcObject = guestStreamRef.current;
@@ -220,6 +256,7 @@ export default function StreamTogether() {
       if (playerRef.current) playerRef.current.close();
       if (hostStreamRef.current) hostStreamRef.current.getTracks().forEach(t => t.stop());
       if (guestStreamRef.current) guestStreamRef.current.getTracks().forEach(t => t.stop());
+      if (audioContextRef.current) audioContextRef.current.close();
     };
   }, []);
 
