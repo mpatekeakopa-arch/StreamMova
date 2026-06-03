@@ -62,7 +62,8 @@ function Dashboard() {
   const [youtubeAccessToken, setYoutubeAccessToken] = useState("");
   const [youtubeRefreshToken, setYoutubeRefreshToken] = useState("");
 
-  const { displayName, authUser, profile } = useAuth();
+  // FIX: Removed unused 'profile' variable
+  const { displayName, authUser } = useAuth();
 
   const planName = "Free Plan";
   const avatarInitials = useMemo(() => getInitials(displayName), [displayName]);
@@ -105,7 +106,7 @@ function Dashboard() {
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  const modalRef = useRef(null);
+  // FIX: Removed unused 'modalRef'
 
   const cameraStreamRef = useRef(cameraStream);
   const uploadedVideoRef = useRef(uploadedVideo);
@@ -1150,7 +1151,6 @@ function Dashboard() {
                 </div>
 
                 <div className="dashboard-right-column">
-                  {/* Updated Scheduler Card */}
                   <div className="dashboard-card schedule-card">
                     <h3>Set a Reminder</h3>
                     <p className="card-description">
